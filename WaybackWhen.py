@@ -89,7 +89,7 @@ def get_internal_links(base_url):
     return links
 
 def should_archive(url, global_archive_action):
-    """Determines if a URL should be archived based on a global action or a 48-hour check.
+    """Determines if a URL should be archived based on a global action or a custom check.
 
     Contributors: Consider adding more sophisticated checks for archiving, e.g., checking content changes.
     """
