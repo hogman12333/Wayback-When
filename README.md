@@ -4,10 +4,10 @@
 
 ## Installing Requirements
 
-
+The requirements are part of the python script, however I will leave them here aswell
 
 ```bash
-$ pip install requests beautifulsoup4 waybackpy urllib3
+$ pip install requests beautifulsoup4 waybackpy selenium webdriver-manager
 ```
 ## Installing
 ```bash

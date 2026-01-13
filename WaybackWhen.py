@@ -1,5 +1,21 @@
+# Install required Python packages
+!pip install requests beautifulsoup4 waybackpy selenium webdriver-manager
+
+# Install google-chrome-stable for better compatibility with ChromeDriver
+!wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | apt-key add -
+!echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" | tee /etc/apt/sources.list.d/google-chrome.list
+!apt-get update && apt-get install -y google-chrome-stable
+
+# Define Settings Dictionary
+SETTINGS = {
+    'archiving_cooldown': 2, # Default cooldown in days
+    'urls_per_minute_limit': 15, # Max URLs to archive per minute
+    'max_crawler_workers': 0, # Max concurrent workers for website crawling (0 for unlimited) - affects RAM usage massively
+    'archiving_retries': 5 # Max retries for archiving a single link
+}
+
 import requests
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, XMLParsedAsHTMLWarning
 from urllib.parse import urljoin, urlparse
 import waybackpy
 from datetime import datetime, timedelta, timezone
@@ -9,14 +25,55 @@ from urllib3.util.retry import Retry
 import concurrent.futures
 from collections import deque
 import threading
+import warnings
+from IPython.display import clear_output # Import clear_output for console management
 
-SETTINGS = {
-    'archiving_cooldown': 2, # Default cooldown in days
-    'urls_per_minute_limit': 15, # Max URLs to archive per minute
-    'max_crawler_workers': 15 # Max concurrent workers for website crawling
-}
+# Import selenium components
+from selenium import webdriver
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.chrome.service import Service as ChromeService # Import ChromeService
+from webdriver_manager.chrome import ChromeDriverManager
+from selenium.webdriver.common.by import By # Import By for CAPTCHA detection
+from selenium.common.exceptions import TimeoutException, WebDriverException # Import TimeoutException and WebDriverException
 
-def get_internal_links(base_url):
+warnings.filterwarnings("ignore", category=XMLParsedAsHTMLWarning)
+
+# Function to set up and return a headless Chrome WebDriver
+def get_driver():
+    options = Options()
+    options.add_argument("--headless") # Run Chrome in headless mode
+    options.add_argument("--no-sandbox") # Bypass OS security model, required for Colab
+    options.add_argument("--disable-dev-shm-usage") # Overcome limited resource problems
+    options.add_argument("--disable-gpu") # Added for headless stability
+    # Explicitly set the binary location for google-chrome-stable
+    options.binary_location = '/usr/bin/google-chrome'
+    # Optionally, add a user-agent to mimic a regular browser
+    options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+
+    # Initialize ChromeDriver using webdriver_manager to handle downloads and setup
+    service = ChromeService(executable_path=ChromeDriverManager().install())
+    driver = webdriver.Chrome(service=service, options=options)
+    driver.set_page_load_timeout(240) # Set page load timeout to 240 seconds (4 minutes)
+    driver.command_executor.set_timeout(300) # Set command executor timeout to 300 seconds (5 minutes)
+    return driver
+
+
+
+# Configure a retry strategy once, to be used for each new session
+retry_strategy = Retry(
+    total=5,
+    backoff_factor=1,
+    status_forcelist=[403, 404, 429, 500, 502, 503, 504],
+    allowed_methods=False # Apply retry to all HTTP methods
+)
+adapter = HTTPAdapter(max_retries=retry_strategy)
+
+# Global dictionary to store the last access time for each domain
+# Removed: last_domain_access_time = {}
+# Lock to manage concurrent access to last_domain_access_time
+# Removed: domain_cooldown_lock = threading.Lock()
+
+def get_internal_links(base_url, driver): # Modified to accept a driver object
     """Scrapes a given URL to find all internal links and returns them as a set.
 
     This function uses a browser-like User-Agent and retry logic for robustness.
@@ -24,40 +81,43 @@ def get_internal_links(base_url):
     """
     links = set()
 
-    # Mimic a common browser User-Agent to avoid being blocked by some websites
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Accept-Language': 'en-US,en;q=0.9',
-        'Connection': 'keep-alive',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7'
-    }
-
-    # Configure a retry strategy for robust HTTP requests
-    # It retries on specific status codes (e.g., 403, 404, 429, 5xx) up to 5 times
-    # with an exponential backoff factor.
-    retry_strategy = Retry(
-        total=5,
-        backoff_factor=1,
-        status_forcelist=[403, 404, 429, 500, 502, 503, 504],
-        allowed_methods=False # Apply retry to all HTTP methods
-    )
-    # Mount the adapter to the session to enable retries for both http and https
-    adapter = HTTPAdapter(max_retries=retry_strategy)
-    session = requests.Session()
-    session.mount('http://', adapter)
-    session.mount('https://', adapter)
+    # Extract the domain from the base_url
+    parsed_base_url = urlparse(base_url)
+    domain = parsed_base_url.netloc
 
     try:
-        # Send a GET request to the base_url using the configured session and headers
-        # A timeout is set to prevent requests from hanging indefinitely.
-        response = session.get(base_url, headers=headers, timeout=15)
-        # Raise an HTTPError for bad responses (4xx or 5xx client/server errors)
-        response.raise_for_status()
+        # Navigate to the base_url using Selenium
+        driver.get(base_url)
 
-        # Parse the HTML content of the page using BeautifulSoup
-        soup = BeautifulSoup(response.text, 'html.parser')
+        # CAPTCHA Detection
+        captcha_indicators = [
+            (By.ID, 'g-recaptcha'),
+            (By.CLASS_NAME, 'g-recaptcha'),
+            (By.XPATH, "//iframe[contains(@src, 'google.com/recaptcha')]")
+        ]
+        captcha_detected = False
+        for by_type, value in captcha_indicators:
+            if driver.find_elements(by_type, value):
+                captcha_detected = True
+                break
+
+        if captcha_detected:
+            while True:
+                print(f"[CAPTCHA DETECTED] for {base_url}.\nPlease solve the CAPTCHA manually in the browser if it becomes visible.\nType 'continue' to resume crawling or 'skip' to skip this URL:")
+                user_choice = input().strip().lower()
+                if user_choice == 'continue':
+                    print("Attempting to continue after manual intervention...")
+                    break # Break the loop to re-attempt processing the page
+                elif user_choice == 'skip':
+                    print(f"Skipping {base_url} due to CAPTCHA.")
+                    return links # Return empty set if CAPTCHA detected and skipped
+                else:
+                    print("Invalid input. Please type 'continue' or 'skip'.")
+
+        # Parse the HTML content of the page using BeautifulSoup from driver.page_source
+        soup = BeautifulSoup(driver.page_source, 'html.parser')
         # Extract the domain name from the base_url to identify internal links
-        domain = urlparse(base_url).netloc
+        domain = parsed_base_url.netloc
 
         # Find all anchor tags (<a>) that have an 'href' attribute
         for anchor in soup.find_all('a', href=True):
@@ -79,15 +139,13 @@ def get_internal_links(base_url):
                 clean_url = f"{parsed_url.scheme}://{parsed_url.netloc}{parsed_url.path}"
                 links.add(clean_url)
 
-    # Handle specific HTTP errors during the request
-    except requests.exceptions.HTTPError as e:
-        print(f"HTTP Error crawling {base_url}: {e}")
-    # Handle general request exceptions (e.g., connection errors, timeouts)
-    except requests.exceptions.RequestException as e:
-        print(f"Request Error crawling {base_url}: {e}")
-    # Catch any other unexpected errors
+    # Handle specific HTTP errors during the request (Selenium errors are different from requests)
+    except TimeoutException:
+        print(f"[!] Page load timed out for {base_url}. Skipping.")
+    except WebDriverException as e:
+        print(f"[!] A WebDriver error occurred while crawling {base_url}: {e}")
     except Exception as e:
-        print(f"An unexpected error occurred while crawling {base_url}: {e}")
+        print(f"[!] An unexpected error occurred while crawling {base_url} with Selenium: {e}")
 
     return links
 
@@ -99,13 +157,11 @@ def should_archive(url, global_archive_action):
     user_agent = "ArchiveRequestBot/1.0" # Define a user agent for Wayback Machine requests
     wayback = waybackpy.Url(url, user_agent) # Initialize WaybackPy URL object
 
-    # If the global action is 'a' (Archive All), immediately return True to archive.
+    # If the global action is 'a' (Archive All) or 's' (Skip All), we just return the boolean
+    # and let the calling function handle consolidated printing.
     if global_archive_action == 'a':
-        print(f"Global choice: Archiving all for {url}.")
         return True, wayback
-    # If the global action is 's' (Skip All), immediately return False to skip.
     elif global_archive_action == 's':
-        print(f"Global choice: Skipping all for {url}.")
         return False, wayback
 
     # If global_archive_action is 'n' (Normal), proceed with the 48-hour check logic.
@@ -167,8 +223,8 @@ def process_link_for_archiving(link, global_archive_action):
     needs_save, wb_obj = should_archive(link, global_archive_action)
 
     if needs_save:
-        retries = 3 # Number of retries for archiving a single link
-        while True:
+        retries = SETTINGS['archiving_retries'] # Number of retries for archiving a single link
+        while retries > 0:
             # Acquire a lock to safely manage the global rate limit timer
             with archive_lock:
                 now = time.time() # Current time
@@ -213,6 +269,7 @@ def process_link_for_archiving(link, global_archive_action):
                     else:
                         # If no retries left, report failure
                         return f"[!] Failed to archive {link} after multiple attempts: {e}"
+        return f"[!] Failed to archive {link} after multiple attempts." # Return after retry loop finishes
     else:
         return f"Skipped: {link}"
 
@@ -224,6 +281,8 @@ def crawl_website(base_url):
     Contributors: Optimizing the BFS algorithm (e.g., using a faster data structure for visited URLs),
     or improving the parallel processing strategy could be future enhancements.
     """
+    # Removed driver initialization from here. Each worker will get its own driver.
+
     # Initialize a deque (double-ended queue) for BFS, starting with the base_url
     queue = deque([base_url])
     # Keep track of visited URLs to avoid redundant processing and infinite loops
@@ -231,35 +290,55 @@ def crawl_website(base_url):
     # Stores all unique internal links discovered during the crawl
     all_unique_internal_links = {base_url}
 
-    # Use ThreadPoolExecutor for parallel processing of `get_internal_links` calls
-    # `max_crawler_workers` allows for up to that many concurrent scraping operations.
-    with concurrent.futures.ThreadPoolExecutor(max_workers=SETTINGS['max_crawler_workers']) as executor:
-        while queue:
-            # Define a batch size for processing URLs in parallel
-            batch_size = SETTINGS['max_crawler_workers'] # Use max_crawler_workers as batch size
-            current_batch_urls = []
+    # Wrapper function to create and quit a driver for each task
+    def wrapper_get_internal_links(url_to_crawl):
+        driver = None
+        try:
+            driver = get_driver()
+            links = get_internal_links(url_to_crawl, driver)
+            return links
+        finally:
+            if driver:
+                driver.quit()
 
-            # Populate the batch with URLs from the queue, up to `batch_size`
-            while queue and len(current_batch_urls) < batch_size:
-                url_to_crawl = queue.popleft() # Get the next URL from the front of the queue
-                current_batch_urls.append(url_to_crawl)
+    try:
+        # Determine max_workers based on SETTINGS
+        max_workers = SETTINGS['max_crawler_workers']
+        if max_workers == 0:
+            max_workers = None # Set to None for unlimited workers (ThreadPoolExecutor default)
 
-            # If the current batch is empty, there are no more URLs to process
-            if not current_batch_urls:
-                break
+        # Use ThreadPoolExecutor for concurrent processing of `get_internal_links` calls
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+            while queue:
+                # Define a batch size for processing URLs in parallel
+                batch_size = SETTINGS['max_crawler_workers'] if SETTINGS['max_crawler_workers'] > 0 else 65 # Use max_crawler_workers as batch size, or a reasonable default if unlimited
+                current_batch_urls = [] # Stores just URLs, no longer (url, driver) tuples
 
-            print(f"Processing batch of {len(current_batch_urls)} URLs for crawling.")
+                # Populate the batch with URLs from the queue, up to `batch_size`
+                while queue and len(current_batch_urls) < batch_size:
+                    url_to_crawl = queue.popleft() # Get the next URL from the front of the queue
+                    current_batch_urls.append(url_to_crawl) # Append just the URL
 
-            # Submit `get_internal_links` for each URL in the batch to the executor.
-            # `executor.map` applies the function to all items in `current_batch_urls` concurrently
-            # and returns results in the order the calls were made.
-            for new_links_from_url in executor.map(get_internal_links, current_batch_urls):
-                for link in new_links_from_url:
-                    all_unique_internal_links.add(link) # Add discovered link to the overall set
-                    # If the link has not been visited yet, add it to the queue for future crawling
-                    if link not in visited_urls:
-                        visited_urls.add(link)
-                        queue.append(link)
+                # If the current batch is empty, there are no more URLs to process
+                if not current_batch_urls:
+                    break
+
+                print(f"Processing batch of {len(current_batch_urls)} URLs for crawling.")
+
+                # Submit `wrapper_get_internal_links` for each URL in the batch to the executor.
+                for new_links_from_url in executor.map(wrapper_get_internal_links, current_batch_urls):
+                    for link in new_links_from_url:
+                        all_unique_internal_links.add(link) # Add discovered link to the overall set
+                        # Print discovered URL if it's new
+                        if link not in visited_urls:
+                            print(f"[DISCOVERED] {link}")
+                            visited_urls.add(link)
+                            queue.append(link)
+    except Exception as e:
+        print(f"An error occurred during website crawling: {e}")
+    finally:
+        # No driver.quit() here as drivers are managed per thread in wrapper_get_internal_links
+        pass
 
     return all_unique_internal_links
 
@@ -268,6 +347,10 @@ def main():
 
     Contributors: Consider adding command-line argument parsing for URLs, or integrating a configuration file.
     """
+    # Removed: Clear the last_domain_access_time dictionary at the start of each run
+    # global last_domain_access_time
+    # last_domain_access_time.clear()
+
     # Prompt the user to enter one or more URLs
     target_urls_input = input("Enter URLs (comma-separated, e.g., https://notawebsite.org/, https://example.com/): ").strip()
     # Split the input string by commas and clean up whitespace, filtering out empty strings
@@ -292,6 +375,9 @@ def main():
 
     print(f"Found {len(all_discovered_links)} unique internal links across all initial URLs.")
 
+    # Clear previous output before asking for archiving action to keep the console clean
+    clear_output(wait=True)
+
     # Loop until a valid global archiving action is chosen by the user
     while True:
         global_choice = input(f"Choose global archiving action: 'A' (Archive All), 'N' (Archive Normally - respecting {SETTINGS['archiving_cooldown']*24}h rule), 'S' (Skip All): ").strip().lower()
@@ -300,13 +386,21 @@ def main():
         else:
             print("Invalid input. Please enter 'A', 'N', or 'S'.")
 
+    # Print consolidated message for 'Archive All' or 'Skip All' actions
+    if global_choice == 'a':
+        print(f"Global choice: Archiving all {len(all_discovered_links)} discovered links.")
+    elif global_choice == 's':
+        print(f"Global choice: Skipping all {len(all_discovered_links)} discovered links.")
+
     results = [] # List to store the results of archiving attempts
     # Iterate through all discovered unique links (sorted for consistent output)
     for link in sorted(list(all_discovered_links)):
         # Process each link for archiving based on the global choice
         results.append(process_link_for_archiving(link, global_choice))
 
-    # Print a summary of all archiving attempts
+    # Clear output again before the final summary for cleanliness
+    clear_output(wait=True)
+
     print("\n--- Archiving Summary ---")
     for result in results:
         print(result)
