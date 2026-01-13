@@ -10,6 +10,9 @@ import concurrent.futures
 from collections import deque
 import threading
 
+#Settings
+archiving_cooldown=2 #2 days default
+
 def get_internal_links(base_url):
     """Scrapes a given URL to find all internal links and returns them as a set.
 
@@ -107,7 +110,9 @@ def should_archive(url, global_archive_action):
         try:
             # Get the most recent archive record for the URL from Wayback Machine
             newest = wayback.newest()
-            last_archived_dt = newest.timestamp # Extract the timestamp of the last archive
+            # Extract the timestamp of the last archive and make it timezone-aware (UTC)
+            # WaybackPy's timestamp is naive but represents UTC, so we make it explicit.
+            last_archived_dt = newest.timestamp.replace(tzinfo=timezone.utc)
 
             # Get the current UTC time for comparison
             current_utc_dt = datetime.now(timezone.utc)
@@ -115,7 +120,7 @@ def should_archive(url, global_archive_action):
             time_diff = current_utc_dt - last_archived_dt
 
             # If the last archive was less than 48 hours ago, skip archiving
-            if time_diff < timedelta(hours=48):
+            if time_diff < timedelta(hours=archiving_cooldown*24):
                 print(f"[-] Skipping: {url} (Last archived {time_diff.total_seconds() // 3600:.1f} hours ago)")
                 return False, wayback
             # Otherwise, the URL needs archiving
@@ -263,7 +268,7 @@ def main():
     Contributors: Consider adding command-line argument parsing for URLs, or integrating a configuration file.
     """
     # Prompt the user to enter one or more URLs
-    target_urls_input = input("Enter URLs (comma-separated, e.g., https://atl.wiki/, https://example.com/): ").strip()
+    target_urls_input = input("Enter URLs (comma-separated, e.g., https://notawebsite.org/, https://example.com/): ").strip()
     # Split the input string by commas and clean up whitespace, filtering out empty strings
     initial_urls = [url.strip() for url in target_urls_input.split(',') if url.strip()]
 
@@ -288,7 +293,7 @@ def main():
 
     # Loop until a valid global archiving action is chosen by the user
     while True:
-        global_choice = input("Choose global archiving action: 'A' (Archive All), 'N' (Archive Normally - respecting 48h rule), 'S' (Skip All): ").strip().lower()
+        global_choice = input(f"Choose global archiving action: 'A' (Archive All), 'N' (Archive Normally - respecting {archiving_cooldown*24}h rule), 'S' (Skip All): ").strip().lower()
         if global_choice in ['a', 'n', 's']:
             break # Exit loop if input is valid
         else:
