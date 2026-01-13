@@ -10,7 +10,6 @@ import concurrent.futures
 from collections import deque
 import threading
 
-# Define Settings Dictionary
 SETTINGS = {
     'archiving_cooldown': 2, # Default cooldown in days
     'urls_per_minute_limit': 15, # Max URLs to archive per minute
