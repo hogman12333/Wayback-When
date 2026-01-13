@@ -10,7 +10,8 @@
 SETTINGS = {
     'archiving_cooldown': 2, # Default cooldown in days
     'urls_per_minute_limit': 15, # Max URLs to archive per minute
-    'max_crawler_workers': 15 # Max concurrent workers for website crawling
+    'max_crawler_workers': 0, # Max concurrent workers for website crawling (0 for unlimited) - affects RAM usage massively
+    'archiving_retries': 5 # Max retries for archiving a single link
 }
 
 import requests
@@ -222,8 +223,8 @@ def process_link_for_archiving(link, global_archive_action):
     needs_save, wb_obj = should_archive(link, global_archive_action)
 
     if needs_save:
-        retries = 3 # Number of retries for archiving a single link
-        while True:
+        retries = SETTINGS['archiving_retries'] # Number of retries for archiving a single link
+        while retries > 0:
             # Acquire a lock to safely manage the global rate limit timer
             with archive_lock:
                 now = time.time() # Current time
@@ -268,6 +269,7 @@ def process_link_for_archiving(link, global_archive_action):
                     else:
                         # If no retries left, report failure
                         return f"[!] Failed to archive {link} after multiple attempts: {e}"
+        return f"[!] Failed to archive {link} after multiple attempts." # Return after retry loop finishes
     else:
         return f"Skipped: {link}"
 
@@ -300,11 +302,16 @@ def crawl_website(base_url):
                 driver.quit()
 
     try:
+        # Determine max_workers based on SETTINGS
+        max_workers = SETTINGS['max_crawler_workers']
+        if max_workers == 0:
+            max_workers = None # Set to None for unlimited workers (ThreadPoolExecutor default)
+
         # Use ThreadPoolExecutor for concurrent processing of `get_internal_links` calls
-        with concurrent.futures.ThreadPoolExecutor(max_workers=SETTINGS['max_crawler_workers']) as executor:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
             while queue:
                 # Define a batch size for processing URLs in parallel
-                batch_size = SETTINGS['max_crawler_workers'] # Use max_crawler_workers as batch size
+                batch_size = SETTINGS['max_crawler_workers'] if SETTINGS['max_crawler_workers'] > 0 else 65 # Use max_crawler_workers as batch size, or a reasonable default if unlimited
                 current_batch_urls = [] # Stores just URLs, no longer (url, driver) tuples
 
                 # Populate the batch with URLs from the queue, up to `batch_size`
