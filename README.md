@@ -7,7 +7,7 @@
 
 
 ```bash
-$ pip install requests beautifulsoup4 waybackpy urllib3
+$ pip install requests beautifulsoup4 waybackpy selenium webdriver-manager
 ```
 ## Installing
 ```bash
