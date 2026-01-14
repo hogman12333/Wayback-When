@@ -33,10 +33,11 @@ warnings.filterwarnings("ignore", category=XMLParsedAsHTMLWarning)
 
 # Define Settings Dictionary
 SETTINGS = {
-    'archiving_cooldown': 2, # Default cooldown in days
+    'archiving_cooldown': 7, # Default cooldown in days
     'urls_per_minute_limit': 15, # Max URLs to archive per minute
     'max_crawler_workers': 0, # Max concurrent workers for website crawling (0 for unlimited) - affects RAM usage massively
-    'archiving_retries': 5 # Max retries for archiving a single link
+    'archiving_retries': 5, # Max retries for archiving a single link
+    'default_archiving_action': 'n' # Default archiving action: 'n' (Normal), 'a' (Archive All), 's' (Skip All)
 }
 
 # Define a threading.local() object at the module level for WebDriver instances
@@ -428,19 +429,20 @@ def main():
     # Clear previous output before asking for archiving action to keep the console clean
     clear_output(wait=True)
 
-    # Loop until a valid global archiving action is chosen by the user
-    while True:
-        global_choice = input(f"Choose global archiving action: 'A' (Archive All), 'N' (Archive Normally - respecting {SETTINGS['archiving_cooldown']*24}h rule), 'S' (Skip All): ").strip().lower()
-        if global_choice in ['a', 'n', 's']:
-            break # Exit loop if input is valid
-        else:
-            print("Invalid input. Please enter 'A', 'N', or 'S'.")
+    # Set global archiving action based on SETTINGS, with validation and fallback
+    global_choice = SETTINGS.get('default_archiving_action', 'n').lower() # Default to 'n' if not set or invalid
+    valid_choices = ['a', 'n', 's']
+    if global_choice not in valid_choices:
+        print(f"Invalid default_archiving_action '{global_choice}' found in SETTINGS. Falling back to 'Normal' archiving.")
+        global_choice = 'n'
 
     # Print consolidated message for 'Archive All' or 'Skip All' actions
     if global_choice == 'a':
-        print(f"Global choice: Archiving all {len(all_discovered_links)} discovered links.")
+        print(f"Archiving action from settings: Archive All. Archiving all {len(all_discovered_links)} discovered links.")
     elif global_choice == 's':
-        print(f"Global choice: Skipping all {len(all_discovered_links)} discovered links.")
+        print(f"Archiving action from settings: Skip All. Skipping all {len(all_discovered_links)} discovered links.")
+    elif global_choice == 'n':
+        print(f"Archiving action from settings: Normal. Archiving normally (respecting {SETTINGS['archiving_cooldown']*24}h rule) for {len(all_discovered_links)} discovered links.")
 
     # Clear output again before the final summary for cleanliness
     clear_output(wait=True)
