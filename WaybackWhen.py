@@ -29,8 +29,6 @@ from selenium.webdriver.chrome.service import Service as ChromeService # Import 
 from webdriver_manager.chrome import ChromeDriverManager
 from selenium.webdriver.common.by import By # Import By for CAPTCHA detection
 from selenium.common.exceptions import TimeoutException, WebDriverException # Import TimeoutException and WebDriverException
-
-# Import selenium-stealth
 from selenium_stealth import stealth
 
 warnings.filterwarnings("ignore", category=XMLParsedAsHTMLWarning)
@@ -47,7 +45,8 @@ SETTINGS = {
     'max_crawler_workers': 0, # Max concurrent workers for website crawling (0 for unlimited) - affects RAM usage massively
     'retries': 5, # Max retries for archivingsca single link
     'default_archiving_action': 'n', # Default archiving action: 'n' (Normal), 'a' (Archive All), 's' (Skip All)
-    'debug_mode': False # Set to True to enable debug messages, False to disable
+    'debug_mode': False, # Set to True to enable debug messages, False to disable
+    'max_archiver_workers': 0
 }
 
 # Define a threading.local() object at the module level for WebDriver instances
@@ -105,7 +104,11 @@ def generate_random_user_agent():
     return f"Mozilla/5.0 ({os}) {browser}"
 
 # Possible platforms, webgl_vendors, and renderers for randomization
-STEALTH_PLATFORMS = ["Win32", "Linux x86_64", "MacIntel"]
+STEALTH_PLATFORMS = [
+    "Win32", 
+    "Linux x86_64", 
+    "MacIntel"
+]
 STEALTH_WEBGL_VENDORS = [
     "Google Inc. (Intel)", "Intel Inc.", "NVIDIA Corporation", "Apple Inc."
 ]
@@ -142,7 +145,7 @@ def get_driver():
             # chrome_app=1,
             # user_agent=generate_random_user_agent(), # If you want stealth to set the UA, otherwise it's set per request
             # client_rects=True,
-            ) 
+            )
 
     driver.set_page_load_timeout(240) # Set page load timeout to 240 seconds (4 minutes)
     driver.command_executor.set_timeout(300) # Set command executor timeout to 300 seconds (5 minutes)
@@ -167,6 +170,13 @@ adapter = HTTPAdapter(max_retries=retry_strategy)
 # Define irrelevant extensions and path segments globally
 IRRELEVANT_EXTENSIONS = ('.pdf', '.zip', '.tar', '.gz', '.rar', '.7z', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx', '.jpg', '.jpeg', '.png', '.gif', '.bmp', '.mp4', '.avi', '.mov', '.mp3', '.wav', '.flac', '.iso', '.exe', '.dmg', '.pkg', '.apk')
 IRRELEVANT_PATH_SEGMENTS = ('/cdn-cgi/', '/assets/', '/uploads/', '/wp-content/', '/wp-includes/', '/themes/', '/plugins/', '/node_modules/', '/static/', '/javascript/', '/css/', '/img/')
+
+def log_message(level, message, debug_only=False):
+    """Standardized logging function."""
+    if debug_only and not SETTINGS['debug_mode']:
+        return
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    print(f"[{timestamp}][{level.upper()}] {message}")
 
 def normalize_url(url):
     """Normalizes a URL for consistent comparison and deduplication."""
@@ -210,8 +220,7 @@ def get_internal_links(base_url, driver): # Modified to accept a driver object
     parsed_base_url = urlparse(base_url)
     domain = parsed_base_url.netloc
 
-    if SETTINGS['debug_mode']:
-        print(f"[DEBUG] Starting get_internal_links for base_url: {base_url} with domain: {domain}")
+    log_message('DEBUG', f"Starting get_internal_links for base_url: {base_url} with domain: {domain}", debug_only=True)
 
     retries = SETTINGS['retries'] # Use the 'retries' setting
     attempt = 0
@@ -243,22 +252,20 @@ def get_internal_links(base_url, driver): # Modified to accept a driver object
 
             if captcha_detected:
                 with captcha_prompt_lock:
-                    print(f"[CAPTCHA DETECTED] for {base_url}. Waiting 5-10 seconds before attempting to continue...")
+                    log_message('WARNING', f"CAPTCHA DETECTED for {base_url}. Waiting 5-10 seconds before attempting to continue...")
                     time.sleep(random.uniform(5, 10)) # Wait for a random time between 5 and 10 seconds
-                    print("Attempting to continue after automated wait...")
+                    log_message('INFO', "Attempting to continue after automated wait...")
                     # After waiting, the code will proceed to re-attempt scraping implicitly
 
             # --- MODIFICATION: Use Selenium to find links directly instead of BeautifulSoup ---
             # Find all anchor tags (<a>) that have an 'href' attribute using Selenium
-            if SETTINGS['debug_mode']:
-                print(f"[DEBUG] Page loaded for {base_url}. Extracting links...")
+            log_message('DEBUG', f"Page loaded for {base_url}. Extracting links...", debug_only=True)
             found_any_href = False
             for anchor_element in driver.find_elements(By.TAG_NAME, 'a'):
                 href = anchor_element.get_attribute('href')
                 if href:
                     found_any_href = True
-                    if SETTINGS['debug_mode']:
-                        print(f"[DEBUG] Found href: {href}")
+                    log_message('DEBUG', f"Found href: {href}", debug_only=True)
                     # Resolve relative URLs to absolute URLs
                     full_url = urljoin(base_url, href)
                     parsed_full_url = urlparse(full_url)
@@ -266,33 +273,30 @@ def get_internal_links(base_url, driver): # Modified to accept a driver object
                     # Check if the parsed URL's domain matches the base URL's domain
                     if parsed_full_url.netloc == domain:
                         clean_url = normalize_url(full_url)
-                        if SETTINGS['debug_mode']:
-                            print(f"[DEBUG] Adding internal link: {clean_url}")
+                        log_message('DEBUG', f"Adding internal link: {clean_url}", debug_only=True)
                         links.add(clean_url)
                     else:
-                        if SETTINGS['debug_mode']:
-                            print(f"[DEBUG] Skipping external link: {full_url} (Domain: {parsed_full_url.netloc} != {domain})")
-            if not found_any_href and SETTINGS['debug_mode']:
-                print(f"[DEBUG] No href attributes found on {base_url} by Selenium.")
+                        log_message('DEBUG', f"Skipping external link: {full_url} (Domain: {parsed_full_url.netloc} != {domain})", debug_only=True)
+            if not found_any_href:
+                log_message('DEBUG', f"No href attributes found on {base_url} by Selenium.", debug_only=True)
 
-            if SETTINGS['debug_mode']:
-                print(f"[DEBUG] Finished processing {base_url}. Discovered {len(links)} links.")
+            log_message('DEBUG', f"Finished processing {base_url}. Discovered {len(links)} links.", debug_only=True)
             return links # If successful, break retry loop and return links
 
         # Handle specific HTTP errors during the request (Selenium errors are different from requests)
         except TimeoutException:
-            print(f"[!] Page load timed out for {base_url}. Retrying ({retries - attempt - 1} attempts left).")
+            log_message('WARNING', f"Page load timed out for {base_url}. Retrying ({retries - attempt - 1} attempts left).")
             attempt += 1
             time.sleep(random.uniform(5, 15)) # Longer, randomized delay
         except WebDriverException as e:
-            print(f"[!] A WebDriver error occurred while crawling {base_url}: {e}. Retrying ({retries - attempt - 1} attempts left).")
+            log_message('ERROR', f"A WebDriver error occurred while crawling {base_url}: {e}. Retrying ({retries - attempt - 1} attempts left).")
             attempt += 1
             time.sleep(random.uniform(5, 15)) # Longer, randomized delay
         except Exception as e:
-            print(f"[!] An unexpected error occurred while crawling {base_url} with Selenium: {e}. Retrying ({retries - attempt - 1} attempts left).")
+            log_message('ERROR', f"An unexpected error occurred while crawling {base_url} with Selenium: {e}. Retrying ({retries - attempt - 1} attempts left).")
             attempt += 1
             time.sleep(random.uniform(5, 15)) # Longer, randomized delay
-    print(f"[!] Failed to retrieve {base_url} after {retries} attempts.")
+    log_message('ERROR', f"Failed to retrieve {base_url} after {retries} attempts.")
     return links
 
 def should_archive(url, global_archive_action):
@@ -329,25 +333,25 @@ def should_archive(url, global_archive_action):
 
             # If the last archive was less than `archiving_cooldown` days ago, skip archiving
             if time_diff < timedelta(days=SETTINGS['archiving_cooldown']):
-                print(f"[-] Skipping: {url} (Last archived {time_diff.total_seconds() // 3600:.1f} hours ago)")
+                log_message('SKIPPED', f"{url} (Last archived {time_diff.total_seconds() // 3600:.1f} hours ago)")
                 return False, wayback
             # Otherwise, the URL needs archiving
             else:
-                print(f"[+] Needs Archive: {url} (Last archived {time_diff.total_seconds() // 3600:.1f} hours ago, > {SETTINGS['archiving_cooldown']*24} hours)")
+                log_message('INFO', f"Needs Archive: {url} (Last archived {time_diff.total_seconds() // 3600:.1f} hours ago, > {SETTINGS['archiving_cooldown']*24} hours)")
                 return True, wayback
 
         # Handle cases where no existing archive record is found for the URL
         except waybackpy.exceptions.NoCDXRecordFound:
-            print(f"[!] No existing archive found for {url}. Archiving.")
+            log_message('INFO', f"No existing archive found for {url}. Archiving.")
             return True, wayback
         # Handle other unexpected errors during the archive check
         except Exception as e:
             attempt += 1
             if attempt < retries:
-                print(f"[!] An error occurred while checking archive for {url}: {e}. Retrying ({retries - attempt} attempts left).")
+                log_message('WARNING', f"An error occurred while checking archive for {url}: {e}. Retrying ({retries - attempt} attempts left).")
                 time.sleep(5) # Wait before retrying the archive check
             else:
-                print(f"[!] Failed to check archive for {url} after {retries} attempts: {e}. Defaulting to archive.")
+                log_message('ERROR', f"Failed to check archive for {url} after {retries} attempts: {e}. Defaulting to archive.")
                 return True, wayback # Default to archive if all retries fail
     return False, wayback # Should not be reached if retries are handled correctly or success occurs
 
@@ -378,16 +382,16 @@ def process_link_for_archiving(link, global_archive_action):
                 # If the elapsed time is less than the minimum required delay, pause.
                 if elapsed < MIN_ARCHIVE_DELAY_SECONDS:
                     sleep_duration = MIN_ARCHIVE_DELAY_SECONDS - elapsed
-                    print(f"[RATE LIMIT] Sleeping for {sleep_duration:.2f} seconds before archiving {link}")
+                    log_message('RATE LIMIT', f"Sleeping for {sleep_duration:.2f} seconds before archiving {link}")
                     time.sleep(sleep_duration)
 
                 # Update the last archive time after potentially sleeping
                 last_archive_time = time.time()
 
             try:
-                print(f"[+] Archiving: {link}...")
+                log_message('INFO', f"Archiving: {link}...")
                 wb_obj.save() # Attempt to save the URL to Wayback Machine
-                return f"Successfully archived: {link}"
+                return f"[ARCHIVED] {link}"
             except Exception as e:
                 error_message = str(e)
                 # Check for a specific rate limit error message from Wayback Machine
@@ -395,18 +399,17 @@ def process_link_for_archiving(link, global_archive_action):
 
                 retries -= 1
                 if rate_limit_keyword in error_message:
-                    # If rate limit hit, automatically pause for 5 minutes and retry
-                    print(f"[!] Wayback Machine rate limit hit for {link}. Pausing for 5 minutes before retrying ({retries} attempts left).")
+                    log_message('WARNING', f"Wayback Machine rate limit hit for {link}. Pausing for 5 minutes before retrying ({retries} attempts left).")
                     time.sleep(300) # Pause for 5 minutes (300 seconds)
                 elif retries > 0:
-                    print(f"[!] Could not save {link}: {e}. Retrying ({retries} attempts left)...")
+                    log_message('WARNING', f"Could not save {link}: {e}. Retrying ({retries} attempts left)...")
                     time.sleep(2) # Short cooldown before next retry for other errors
                 else:
                     # If no retries left, report failure
-                    return f"[!] Failed to archive {link} after multiple attempts: {e}"
-        return f"[!] Failed to archive {link} after multiple attempts." # Return after retry loop finishes
+                    return f"[FAILED] Failed to archive {link} after multiple attempts: {e}"
+        return f"[FAILED] Failed to archive {link} after multiple attempts."
     else:
-        return f"Skipped: {link}"
+        return f"[SKIPPED] {link}"
 
 # Wrapper function to manage thread-local driver instances
 def wrapper_get_internal_links(url_to_crawl):
@@ -419,7 +422,7 @@ def wrapper_get_internal_links(url_to_crawl):
     links = get_internal_links(url_to_crawl, _thread_local.driver)
     return links
 
-def crawl_website(base_url):
+def crawl_website(base_url, archiver_executor, archiving_futures, global_archive_action):
     """
     Performs a breadth-first search (BFS) to discover all internal links within a given base URL.
     Uses parallel processing for efficient scraping.
@@ -430,6 +433,10 @@ def crawl_website(base_url):
     visited_urls = {base_url}
     # Stores all unique internal links discovered during the crawl
     all_unique_internal_links = {base_url}
+
+    # Submit the base_url for archiving if an archiver_executor is provided
+    if archiver_executor:
+        archiving_futures.append(archiver_executor.submit(process_link_for_archiving, base_url, global_archive_action))
 
     try:
         # Determine max_workers based on SETTINGS
@@ -453,7 +460,7 @@ def crawl_website(base_url):
                 if not current_batch_urls:
                     break
 
-                print(f"Processing batch of {len(current_batch_urls)} URLs for crawling.")
+                log_message('INFO', f"Processing batch of {len(current_batch_urls)} URLs for crawling.")
 
                 futures = {executor.submit(wrapper_get_internal_links, url_to_crawl): url_to_crawl for url_to_crawl in current_batch_urls}
 
@@ -466,26 +473,29 @@ def crawl_website(base_url):
                             continue # Skip if wrapper_get_internal_links somehow returns None
 
                         for link in new_links_from_url:
-                            all_unique_internal_links.add(link) # Add discovered link to the overall set
-                            # Print discovered URL if it's new
+                            # Only add and potentially archive if the link is truly new and hasn't been visited
                             if link not in visited_urls:
-                                print(f"[DISCOVERED] {link}") # This line will now always print
+                                all_unique_internal_links.add(link) # Add discovered link to the overall set
+                                log_message('DISCOVERED', link) # This line will now always print
                                 visited_urls.add(link)
                                 queue.append(link)
+                                # Submit new link for archiving if archiver_executor is provided
+                                if archiver_executor:
+                                    archiving_futures.append(archiver_executor.submit(process_link_for_archiving, link, global_archive_action))
                     except CaptchaDetectedError as e:
                         # This exception will only be caught if the user explicitly chose 'skip' in the CAPTCHA prompt
                         # or if an unexpected CAPTCHA-related error occurred that wasn't handled by the prompt loop.
-                        print(f"CAPTCHA detection handled for {url_to_crawl}. Continuing with other URLs.")
+                        log_message('WARNING', f"CAPTCHA detection handled for {url_to_crawl}. Continuing with other URLs.")
                         # No need to shutdown executor here, as the user opted to skip or continue.
                     except Exception as e:
-                        print(f"An error occurred while processing {url_to_crawl}: {e}")
+                        log_message('ERROR', f"An error occurred while processing {url_to_crawl}: {e}")
                         # Continue with other URLs, but log the error.
     except Exception as e:
-        print(f"An unexpected error occurred during website crawling: {e}")
+        log_message('ERROR', f"An unexpected error occurred during website crawling: {e}")
         return set() # Explicitly return an empty set on error
     finally:
         # Note: WebDriver instances are no longer explicitly quit after each URL.
-        # They will persist for the lifetime of their respective worker threads within the ThreadPoolExecutor.
+        # They will persist for the lifetime of their respective worker threads within the ThreadPoolExecutor.p
         # Proper cleanup (driver.quit()) should ideally be handled when the ThreadPoolExecutor itself shuts down,
         # which might require more advanced patterns for explicit resource management with concurrent.futures.
         pass
@@ -507,54 +517,80 @@ def main():
 
     # If no valid URLs were entered, exit the function
     if not initial_urls:
-        print("No valid URLs entered.")
+        log_message('INFO', "No valid URLs entered.")
         return
 
     all_discovered_links = set() # Set to store all unique internal links found across all initial URLs
-    for url in initial_urls:
-        # Basic validation to ensure the URL starts with 'http' or 'https'
-        if not url.startswith("http"):
-            print(f"Invalid URL format for {url}. Skipping.")
-            continue
-        print(f"\nStarting crawl for initial URL: {url}")
-        # Perform the BFS crawl for each initial URL
-        discovered_links_for_url = crawl_website(url)
-        # Add all links discovered from the current URL to the master set
-        all_discovered_links.update(discovered_links_for_url)
-
-    print(f"Found {len(all_discovered_links)} unique internal links across all initial URLs.")
-
-    # Clear previous output before asking for archiving action to keep the console clean
-    clear_output(wait=True)
+    archiving_futures = [] # List to hold futures for archiving tasks
+    crawling_futures = [] # New list to hold futures for crawling tasks
 
     # Set global archiving action based on SETTINGS, with validation and fallback
     global_choice = SETTINGS.get('default_archiving_action', 'n').lower() # Default to 'n' if not set or invalid
     valid_choices = ['a', 'n', 's']
     if global_choice not in valid_choices:
-        print(f"Invalid default_archiving_action '{global_choice}' found in SETTINGS. Falling back to 'Normal' archiving.")
+        log_message('WARNING', f"Invalid default_archiving_action '{global_choice}' found in SETTINGS. Falling back to 'Normal' archiving.")
         global_choice = 'n'
 
-    # Print consolidated message for 'Archive All' or 'Skip All' actions
-    if global_choice == 'a':
-        print(f"Archiving action from settings: Archive All. Archiving all {len(all_discovered_links)} discovered links.")
-    elif global_choice == 's':
-        print(f"Archiving action from settings: Skip All. Skipping all {len(all_discovered_links)} discovered links.")
-    elif global_choice == 'n':
-        print(f"Archiving action from settings: Normal. Archiving normally (respecting {SETTINGS['archiving_cooldown']*24}h rule) for {len(all_discovered_links)} discovered links.")
+    # Determine max_crawler_workers and max_archiver_workers based on SETTINGS
+    max_crawler_workers = SETTINGS['max_crawler_workers']
+    if max_crawler_workers == 0:
+        max_crawler_workers = None # Set to None for unlimited workers
+
+    max_archiver_workers = SETTINGS['max_archiver_workers']
+    if max_archiver_workers == 0:
+        max_archiver_workers = None # Set to None for unlimited workers
+
+    # Initialize both crawler and archiver executors
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max_crawler_workers) as crawler_executor, \
+         concurrent.futures.ThreadPoolExecutor(max_workers=max_archiver_workers) as archiver_executor:
+
+        for url in initial_urls:
+            # Basic validation to ensure the URL starts with 'http' or 'https'
+            if not url.startswith("http"):
+                log_message('WARNING', f"Invalid URL format for {url}. Skipping.")
+                continue
+            log_message('INFO', f"Starting crawl for initial URL: {url}")
+            # Submit crawling tasks to the crawler_executor
+            crawling_futures.append(
+                crawler_executor.submit(crawl_website, url, archiver_executor, archiving_futures, global_choice)
+            )
+
+        # Process crawling results as they complete
+        log_message('INFO', "Waiting for crawling tasks to complete...")
+        for future in concurrent.futures.as_completed(crawling_futures):
+            try:
+                discovered_links_for_url = future.result()
+                all_discovered_links.update(discovered_links_for_url)
+            except Exception as e:
+                log_message('ERROR', f"Error during crawling task: {e}")
+
+        log_message('INFO', f"Found {len(all_discovered_links)} unique internal links across all initial URLs.")
+
+        # Clear previous output before providing archiving information
+        clear_output(wait=True)
+
+        # Print consolidated message for 'Archive All' or 'Skip All' actions
+        if global_choice == 'a':
+            log_message('INFO', f"Archiving action from settings: Archive All.")
+        elif global_choice == 's':
+            log_message('INFO', f"Archiving action from settings: Skip All.")
+        elif global_choice == 'n':
+            log_message('INFO', f"Archiving action from settings: Normal (respecting {SETTINGS['archiving_cooldown']*24}h rule).") # Updated message to reflect 'Normal' action.
+
+        log_message('INFO', f"Submitted {len(archiving_futures)} archiving tasks.")
+        log_message('INFO', "Waiting for all archiving tasks to complete...")
+
+        results = [] # List to store the results of archiving attempts
+        for future in concurrent.futures.as_completed(archiving_futures):
+            try:
+                results.append(future.result())
+            except Exception as e:
+                results.append(f"[FAILED] Archiving task failed with error: {e}")
 
     # Clear output again before the final summary for cleanliness
     clear_output(wait=True)
 
-    results = [] # List to store the results of archiving attempts
-    # Iterate through all discovered unique links (sorted for consistent output)
-    for link in sorted(list(all_discovered_links)):
-        # Process each link for archiving based on the global choice
-        results.append(process_link_for_archiving(link, global_choice))
-
-    # Clear output again before the final summary for cleanliness
-    clear_output(wait=True)
-
-    print("\n--- Archiving Summary ---")
+    log_message('INFO', "--- Archiving Summary ---")
     for result in results:
         print(result)
 
