@@ -1,5 +1,5 @@
 # Wayback When
-
+# the V1 branch is to develop both A gui and tui version, and to furthermore, increase efficiency anyway possible
 Wayback-When is a tool that automatically saves entire websites to the Internet Archive.
 
 it Finds every page: Uses a "headless" browser to crawl a website and discover all its internal links.
