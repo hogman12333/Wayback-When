@@ -141,10 +141,6 @@ def get_driver():
             webgl_vendor=random.choice(STEALTH_WEBGL_VENDORS),
             renderer=random.choice(STEALTH_RENDERERS),
             fix_hairline=True,
-            # Additional stealth options that might be available in newer versions:
-            # chrome_app=1,
-            # user_agent=generate_random_user_agent(), # If you want stealth to set the UA, otherwise it's set per request
-            # client_rects=True,
             )
 
     driver.set_page_load_timeout(240) # Set page load timeout to 240 seconds (4 minutes)
@@ -161,11 +157,6 @@ retry_strategy = Retry(
     allowed_methods=False # Apply retry to all HTTP methods
 )
 adapter = HTTPAdapter(max_retries=retry_strategy)
-
-# Global dictionary to store the last access time for each domain
-# Removed: last_domain_access_time = {}
-# Lock to manage concurrent access to last_domain_access_time
-# Removed: domain_cooldown_lock = threading.Lock()
 
 # Define irrelevant extensions and path segments globally
 IRRELEVANT_EXTENSIONS = ('.pdf', '.zip', '.tar', '.gz', '.rar', '.7z', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx', '.jpg', '.jpeg', '.png', '.gif', '.bmp', '.mp4', '.avi', '.mov', '.mp3', '.wav', '.flac', '.iso', '.exe', '.dmg', '.pkg', '.apk')
@@ -257,7 +248,6 @@ def get_internal_links(base_url, driver): # Modified to accept a driver object
                     log_message('INFO', "Attempting to continue after automated wait...")
                     # After waiting, the code will proceed to re-attempt scraping implicitly
 
-            # --- MODIFICATION: Use Selenium to find links directly instead of BeautifulSoup ---
             # Find all anchor tags (<a>) that have an 'href' attribute using Selenium
             log_message('DEBUG', f"Page loaded for {base_url}. Extracting links...", debug_only=True)
             found_any_href = False
@@ -314,7 +304,7 @@ def should_archive(url, global_archive_action):
     elif global_archive_action == 's':
         return False, wayback
 
-    # If global_archive_action is 'n' (Normal), proceed with the 48-hour check logic.
+    # If global_archive_action is 'n' (Normal), proceed with the cooldwon check logic.
     # Implement retry logic for should_archive as well
     retries = SETTINGS.get('retries', 3) # Use the archiving retries setting
     attempt = 0
