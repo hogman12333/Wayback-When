@@ -20,6 +20,7 @@ from collections import deque
 import threading
 import warnings
 from IPython.display import clear_output # Import clear_output for console management
+import random # Import random for selecting user-agents and sleep times
 
 # Import selenium components
 from selenium import webdriver
@@ -36,13 +37,51 @@ SETTINGS = {
     'archiving_cooldown': 7, # Default cooldown in days
     'urls_per_minute_limit': 15, # Max URLs to archive per minute
     'max_crawler_workers': 0, # Max concurrent workers for website crawling (0 for unlimited) - affects RAM usage massively
-    'archiving_retries': 5, # Max retries for archiving a single link
+    'retries': 5, # Max retries for archivingsca single link
     'default_archiving_action': 'n' # Default archiving action: 'n' (Normal), 'a' (Archive All), 's' (Skip All)
 }
 
 # Define a threading.local() object at the module level for WebDriver instances
 _thread_local = threading.local()
-clear_output(wait=True)
+
+# Define User-Agent components for dynamic generation
+OS_TYPES = [
+    "Windows NT 10.0; Win64; x64",
+    "Macintosh; Intel Mac OS X 10_15_7",
+    "X11; Linux x86_64",
+    "Linux; Android 13; SM-G998B",
+    "iPhone; CPU iPhone OS 17_0 like Mac OS X",
+    "iPad; CPU OS 17_0 like Mac OS X"
+]
+
+BROWSER_TYPES = [
+    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{version}.0.0.0 Safari/537.36",
+    "AppleWebKit/537.36 (KHTML, like Gecko) Firefox/{version}.0",
+    "AppleWebKit/605.1.15 (KHTML, like Gecko) Version/{version}.1 Safari/605.1.15",
+    "AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/{version}.0.0.0 Mobile/15E148 Safari/604.1"
+]
+
+CHROME_VERSIONS = [str(v) for v in range(100, 126)]
+FIREFOX_VERSIONS = [str(v) for v in range(100, 126)]
+SAFARI_VERSIONS = [str(v) for v in range(14, 17)]
+
+def generate_random_user_agent():
+    os = random.choice(OS_TYPES)
+    browser_template = random.choice(BROWSER_TYPES)
+
+    if "Chrome" in browser_template:
+        version = random.choice(CHROME_VERSIONS)
+    elif "Firefox" in browser_template:
+        version = random.choice(FIREFOX_VERSIONS)
+    elif "Safari" in browser_template or "CriOS" in browser_template:
+        version = random.choice(SAFARI_VERSIONS)
+    else:
+        version = "100" # Default or fallback version
+
+    browser = browser_template.format(version=version)
+    return f"Mozilla/5.0 ({os}) {browser}"
+
+
 # Function to set up and return a headless Chrome WebDriver
 def get_driver():
     options = Options()
@@ -52,8 +91,9 @@ def get_driver():
     options.add_argument("--disable-gpu") # Added for headless stability
     # Explicitly set the binary location for google-chrome-stable
     options.binary_location = '/usr/bin/google-chrome'
-    # Optionally, add a user-agent to mimic a regular browser
-    options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+    # REMOVED: Select a random user-agent from the list and add to options. It will be set per request in get_internal_links.
+    # random_user_agent = random.choice(USER_AGENTS)
+    # options.add_argument(f"user-agent={random_user_agent}")
 
     # Initialize ChromeDriver using webdriver_manager to handle downloads and setup
     service = ChromeService(executable_path=ChromeDriverManager().install())
@@ -93,7 +133,7 @@ def normalize_url(url):
     # Remove fragments
     path = parsed_url.path
 
-    # Remove trailing slashes from path, but keep for root '/'
+    # Remove trailing slashes from path, but keep for root '/' 
     if path.endswith('/') and path != '/':
         path = path.rstrip('/')
 
@@ -124,14 +164,25 @@ def get_internal_links(base_url, driver): # Modified to accept a driver object
     parsed_base_url = urlparse(base_url)
     domain = parsed_base_url.netloc
 
-    retries = SETTINGS.get('crawler_retries', 3) # Use a setting for crawler retries, default to 3
+    print(f"[DEBUG] Starting get_internal_links for base_url: {base_url} with domain: {domain}")
+
+    retries = SETTINGS['retries'] # Use the 'retries' setting
     attempt = 0
     while attempt < retries:
         try:
+            # Select a random user agent for the current request
+            random_user_agent = generate_random_user_agent() # Use the new generator
+            # Set the user agent for the current request using CDP command
+            driver.execute_cdp_cmd('Network.setUserAgentOverride', {'userAgent': random_user_agent})
+
             # Navigate to the base_url using Selenium
             driver.get(base_url)
 
-            # CAPTCHA Detection
+            # --- NEW: Add a small delay to ensure page elements are loaded ---
+            # Randomize sleep duration between 2 and 5 seconds
+            time.sleep(random.uniform(2, 5))
+
+            # CAPTCHA Detection (keep this as it is)
             captcha_indicators = [
                 (By.ID, 'g-recaptcha'),
                 (By.CLASS_NAME, 'g-recaptcha'),
@@ -156,41 +207,30 @@ def get_internal_links(base_url, driver): # Modified to accept a driver object
                     else:
                         print("Invalid input. Please type 'continue' or 'skip'.")
 
-            # Parse the HTML content of the page using BeautifulSoup from driver.page_source
-            soup = BeautifulSoup(driver.page_source, 'html.parser')
-            # Extract the domain name from the base_url to identify internal links
-            # domain = parsed_base_url.netloc # Already defined above
+            # --- MODIFICATION: Use Selenium to find links directly instead of BeautifulSoup ---
+            # Find all anchor tags (<a>) that have an 'href' attribute using Selenium
+            print(f"[DEBUG] Page loaded for {base_url}. Extracting links...")
+            found_any_href = False
+            for anchor_element in driver.find_elements(By.TAG_NAME, 'a'):
+                href = anchor_element.get_attribute('href')
+                if href:
+                    found_any_href = True
+                    print(f"[DEBUG] Found href: {href}")
+                    # Resolve relative URLs to absolute URLs
+                    full_url = urljoin(base_url, href)
+                    parsed_full_url = urlparse(full_url)
 
-            # Find all anchor tags (<a>) that have an 'href' attribute
-            for anchor in soup.find_all('a', href=True):
-                href = anchor['href']
+                    # Check if the parsed URL's domain matches the base URL's domain
+                    if parsed_full_url.netloc == domain:
+                        clean_url = normalize_url(full_url)
+                        print(f"[DEBUG] Adding internal link: {clean_url}")
+                        links.add(clean_url)
+                    else:
+                        print(f"[DEBUG] Skipping external link: {full_url} (Domain: {parsed_full_url.netloc} != {domain})")
+            if not found_any_href:
+                print(f"[DEBUG] No href attributes found on {base_url} by Selenium.")
 
-                # REMOVED: Skip links that are fragments, mailto links, javascript, or contain 'action='
-                # These are typically not relevant for archiving content.
-                # if href.startswith(('#', 'mailto:', 'javascript:')) or 'action=' in href:
-                #    continue
-
-                # --- NEW FILTERING STEPS ---
-                # REMOVED: Skip links if their href ends with any irrelevant extension
-                # if any(href.lower().endswith(ext) for ext in IRRELEVANT_EXTENSIONS):
-                #     continue
-
-                # REMOVED: Skip links if their href contains any irrelevant path segment
-                # if any(segment in href.lower() for segment in IRRELEVANT_PATH_SEGMENTS):
-                #     continue
-                # --- END NEW FILTERING STEPS --nTIL THIS LINE
-
-                # Resolve relative URLs to absolute URLs
-                full_url = urljoin(base_url, href)
-                parsed_full_url = urlparse(full_url)
-
-                # Check if the parsed URL's domain matches the base URL's domain
-                # This ensures only internal links are collected.
-                if parsed_full_url.netloc == domain:
-                    # Construct a clean URL without query parameters or fragments
-                    # Now using the normalize_url helper function
-                    clean_url = normalize_url(full_url)
-                    links.add(clean_url)
+            print(f"[DEBUG] Finished processing {base_url}. Discovered {len(links)} links.")
             return links # If successful, break retry loop and return links
 
         # Handle specific HTTP errors during the request (Selenium errors are different from requests)
@@ -214,7 +254,7 @@ def should_archive(url, global_archive_action):
 
     Contributors: Consider adding more sophisticated checks for archiving, e.g., checking content changes.
     """
-    user_agent = "ArchiveRequestBot/1.0" # Define a user agent for Wayback Machine requests
+    user_agent = generate_random_user_agent() # Use the new generator
     wayback = waybackpy.Url(url, user_agent) # Initialize WaybackPy URL object
 
     # If the global action is 'a' (Archive All) or 's' (Skip All), we just return the boolean
@@ -226,14 +266,14 @@ def should_archive(url, global_archive_action):
 
     # If global_archive_action is 'n' (Normal), proceed with the 48-hour check logic.
     # Implement retry logic for should_archive as well
-    retries = SETTINGS.get('archiving_retries', 3) # Use the archiving retries setting
+    retries = SETTINGS.get('retries', 3) # Use the archiving retries setting
     attempt = 0
     while attempt < retries:
         try:
             # Get the most recent archive record for the URL from Wayback Machine
             newest = wayback.newest()
             # Extract the timestamp of the last archive and make it timezone-aware (UTC)
-            # WaybackPy's timestamp is naive but represents UTC, so we make it explicit.
+            # WaybackPy's timestamp is naive but represents UTC, so we made it explicit.
             last_archived_dt = newest.timestamp.replace(tzinfo=timezone.utc)
 
             # Get the current UTC time for comparison
@@ -261,8 +301,8 @@ def should_archive(url, global_archive_action):
                 print(f"[!] An error occurred while checking archive for {url}: {e}. Retrying ({retries - attempt} attempts left).")
                 time.sleep(5) # Wait before retrying the archive check
             else:
-                print(f"[!] Failed to check archive for {url} after {retries} attempts: {e}. Skipping.")
-                return False, wayback # Skip this URL if all retries fail
+                print(f"[!] Failed to check archive for {url} after {retries} attempts: {e}. Defaulting to archive.")
+                return True, wayback # Default to archive if all retries fail
     return False, wayback # Should not be reached if retries are handled correctly or success occurs
 
 # A lock to ensure only one thread modifies `last_archive_time` at a time
@@ -275,7 +315,7 @@ MIN_ARCHIVE_DELAY_SECONDS = 60 / SETTINGS['urls_per_minute_limit']
 def process_link_for_archiving(link, global_archive_action):
     """Checks if a link needs archiving and attempts to save it to Wayback Machine with rate limiting and retries.
 
-    Contributors: Optimizing rate limiting or adding more detailed logging for archive results would be valuable.
+    Contributors: Optimizing rate limiting or adding more detailed logging for archive results would be valuable. 
     """
     global last_archive_time
 
@@ -283,7 +323,7 @@ def process_link_for_archiving(link, global_archive_action):
     needs_save, wb_obj = should_archive(link, global_archive_action)
 
     if needs_save:
-        retries = SETTINGS['archiving_retries'] # Number of retries for archiving a single link
+        retries = SETTINGS['retries'] # Number of retries for archiving a single link
         while retries > 0:
             # Acquire a lock to safely manage the global rate limit timer
             with archive_lock:
@@ -310,7 +350,7 @@ def process_link_for_archiving(link, global_archive_action):
                 retries -= 1
                 if rate_limit_keyword in error_message:
                     # If rate limit hit, automatically pause for 5 minutes and retry
-                    print(f"[!] Wayback Machine rate limit hit for {link}. Pausing for 5 minutes before retrying ({retries} attempts left)....")
+                    print(f"[!] Wayback Machine rate limit hit for {link}. Pausing for 5 minutes before retrying ({retries} attempts left).")
                     time.sleep(300) # Pause for 5 minutes (300 seconds)
                 elif retries > 0:
                     print(f"[!] Could not save {link}: {e}. Retrying ({retries} attempts left)...")
@@ -356,7 +396,7 @@ def crawl_website(base_url):
             while queue:
                 # Define a batch size for processing URLs in parallel
                 batch_size = SETTINGS['max_crawler_workers'] if SETTINGS['max_crawler_workers'] > 0 else 65 # Use max_crawler_workers as batch size, or a reasonable default if unlimited
-                current_batch_urls = [] # Stores just URLs, no longer (url, driver) tuples
+                current_batch_urls = [] # Stores just URLs, no longer (url, driver)
 
                 # Populate the batch with URLs from the queue, up to `batch_size`
                 while queue and len(current_batch_urls) < batch_size:
@@ -372,7 +412,7 @@ def crawl_website(base_url):
                 # Submit `wrapper_get_internal_links` for each URL in the batch to the executor.
                 for new_links_from_url in executor.map(wrapper_get_internal_links, current_batch_urls):
                     # Ensure new_links_from_url is an iterable (e.g., set), even if an error occurred in wrapper_get_internal_links
-                    if new_links_from_url is None: # This should not happen if wrapper_get_internal_links always returns a set
+                    if new_links_from_url is None: # This should not happen if wrapper_get_internal_links somehow returns None
                         continue # Skip if wrapper_get_internal_links somehow returns None
 
                     for link in new_links_from_url:
@@ -400,7 +440,7 @@ def main():
 
     Contributors: Consider adding command-line argument parsing for URLs, or integrating a configuration file.
     """
-    clear_output(wait=True) # Clear output at the very beginning for a cleaner console
+    # clear_output(wait=True) # Clear output at the very beginning for a cleaner console
 
     # Prompt the user to enter one or more URLs
     target_urls_input = input("Enter URLs (comma-separated, e.g., https://notawebsite.org/, https://example.com/): ").strip()
@@ -427,7 +467,7 @@ def main():
     print(f"Found {len(all_discovered_links)} unique internal links across all initial URLs.")
 
     # Clear previous output before asking for archiving action to keep the console clean
-    clear_output(wait=True)
+    # clear_output(wait=True)
 
     # Set global archiving action based on SETTINGS, with validation and fallback
     global_choice = SETTINGS.get('default_archiving_action', 'n').lower() # Default to 'n' if not set or invalid
@@ -445,7 +485,7 @@ def main():
         print(f"Archiving action from settings: Normal. Archiving normally (respecting {SETTINGS['archiving_cooldown']*24}h rule) for {len(all_discovered_links)} discovered links.")
 
     # Clear output again before the final summary for cleanliness
-    clear_output(wait=True)
+    # clear_output(wait=True)
 
     results = [] # List to store the results of archiving attempts
     # Iterate through all discovered unique links (sorted for consistent output)
@@ -454,7 +494,7 @@ def main():
         results.append(process_link_for_archiving(link, global_choice))
 
     # Clear output again before the final summary for cleanliness
-    clear_output(wait=True)
+    # clear_output(wait=True)
 
     print("\n--- Archiving Summary ---")
     for result in results:
