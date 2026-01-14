@@ -121,7 +121,7 @@ def get_internal_links(base_url, driver): # Modified to accept a driver object
 
     # Extract the domain from the base_url
     parsed_base_url = urlparse(base_url)
-    # Removed: domain = parsed_base_url.netloc
+    domain = parsed_base_url.netloc
 
     retries = SETTINGS.get('crawler_retries', 3) # Use a setting for crawler retries, default to 3
     attempt = 0
@@ -158,7 +158,7 @@ def get_internal_links(base_url, driver): # Modified to accept a driver object
             # Parse the HTML content of the page using BeautifulSoup from driver.page_source
             soup = BeautifulSoup(driver.page_source, 'html.parser')
             # Extract the domain name from the base_url to identify internal links
-            domain = parsed_base_url.netloc
+            # domain = parsed_base_url.netloc # Already defined above
 
             # Find all anchor tags (<a>) that have an 'href' attribute
             for anchor in soup.find_all('a', href=True):
@@ -177,19 +177,19 @@ def get_internal_links(base_url, driver): # Modified to accept a driver object
                 # REMOVED: Skip links if their href contains any irrelevant path segment
                 # if any(segment in href.lower() for segment in IRRELEVANT_PATH_SEGMENTS):
                 #     continue
-                # --- END NEW FILTERING STEPS ---
+                # --- END NEW FILTERING STEPS --nTIL THIS LINE
 
                 # Resolve relative URLs to absolute URLs
                 full_url = urljoin(base_url, href)
-                # Removed: parsed_full_url = urlparse(full_url)
+                parsed_full_url = urlparse(full_url)
 
                 # Check if the parsed URL's domain matches the base URL's domain
                 # This ensures only internal links are collected.
-                # Removed: if parsed_full_url.netloc == domain:
-                # Construct a clean URL without query parameters or fragments
-                # Now using the normalize_url helper function
-                clean_url = normalize_url(full_url)
-                links.add(clean_url)
+                if parsed_full_url.netloc == domain:
+                    # Construct a clean URL without query parameters or fragments
+                    # Now using the normalize_url helper function
+                    clean_url = normalize_url(full_url)
+                    links.add(clean_url)
             return links # If successful, break retry loop and return links
 
         # Handle specific HTTP errors during the request (Selenium errors are different from requests)
