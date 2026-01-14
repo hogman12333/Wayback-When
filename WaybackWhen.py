@@ -104,6 +104,17 @@ def generate_random_user_agent():
     browser = browser_template.format(version=version)
     return f"Mozilla/5.0 ({os}) {browser}"
 
+# Possible platforms, webgl_vendors, and renderers for randomization
+STEALTH_PLATFORMS = ["Win32", "Linux x86_64", "MacIntel"]
+STEALTH_WEBGL_VENDORS = [
+    "Google Inc. (Intel)", "Intel Inc.", "NVIDIA Corporation", "Apple Inc."
+]
+STEALTH_RENDERERS = [
+    "ANGLE (Intel, Intel(R) Iris(TM) Graphics 6100 (OpenGL 4.5), OpenGL 4.5.0)",
+    "Intel Iris OpenGL Engine",
+    "Google SwiftShader",
+    "Metal" # For MacIntel
+]
 
 # Function to set up and return a headless Chrome WebDriver
 def get_driver():
@@ -114,23 +125,24 @@ def get_driver():
     options.add_argument("--disable-gpu") # Added for headless stability
     # Explicitly set the binary location for google-chrome-stable
     options.binary_location = '/usr/bin/google-chrome'
-    # REMOVED: Select a random user-agent from the list and add to options. It will be set per request in get_internal_links.
-    # random_user_agent = random.choice(USER_AGENTS)
-    # options.add_argument(f"user-agent={random_user_agent}")
 
     # Initialize ChromeDriver using webdriver_manager to handle downloads and setup
     service = ChromeService(executable_path=ChromeDriverManager().install())
     driver = webdriver.Chrome(service=service, options=options)
 
-    # Apply selenium-stealth
+    # Apply selenium-stealth with randomized parameters
     stealth(driver,
             languages=["en-US", "en"],
             vendor="Google Inc.",
-            platform="Win32",
-            webgl_vendor="Intel Inc.",
-            renderer="Intel Iris OpenGL Engine",
+            platform=random.choice(STEALTH_PLATFORMS),
+            webgl_vendor=random.choice(STEALTH_WEBGL_VENDORS),
+            renderer=random.choice(STEALTH_RENDERERS),
             fix_hairline=True,
-            ) # No need to pass random user agent here, it's set per request in get_internal_links
+            # Additional stealth options that might be available in newer versions:
+            # chrome_app=1,
+            # user_agent=generate_random_user_agent(), # If you want stealth to set the UA, otherwise it's set per request
+            # client_rects=True,
+            ) 
 
     driver.set_page_load_timeout(240) # Set page load timeout to 240 seconds (4 minutes)
     driver.command_executor.set_timeout(300) # Set command executor timeout to 300 seconds (5 minutes)
