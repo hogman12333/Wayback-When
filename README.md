@@ -1,5 +1,10 @@
 # Wayback When
 
+Wayback-When is a tool that automatically saves entire websites to the Internet Archive.
+
+it Finds every page: Uses a "headless" browser to crawl a website and discover all its internal links.
+
+Archives smartly: Checks if a page was saved recently to avoid wasting time on redundant backups based on user settings.
 
 
 ## Installing Requirements
