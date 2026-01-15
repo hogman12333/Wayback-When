@@ -33,22 +33,26 @@ class CaptchaDetectedError(Exception):
     """Custom exception to indicate that a CAPTCHA was detected."""
     pass
 
+# Custom exception for connection refused during crawling a specific mother URL branch
+class ConnectionRefusedForCrawlerError(Exception):
+    """Custom exception to indicate that a connection was refused for a mother URL during crawling."""
+    pass
+
 # Define Settings Dictionary
 SETTINGS = {
-    'archiving_cooldown': 7, # Default cooldown in days
+    'archiving_cooldown': 28, # Default cooldown in days
     'urls_per_minute_limit': 15, # Max URLs to archive per minute
-    'max_crawler_workers': 1, # Max concurrent workers for website crawling (0 for unlimited)
+    'max_crawler_workers': 0, # Max concurrent workers for website crawling (0 for unlimited)
     'retries': 5, # Max retries for archiving a single link
     'default_archiving_action': 'N', # Default archiving action: 'n' (Normal), 'a' (Archive All), 's' (Skip All)
-    'debug_mode': False, # Set to True to enable debug messages, False to disable
+    'debug_mode': True, # Set to True to enable debug messages, False to disable
     'max_archiver_workers': 0,
     'enable_visual_tree_generation': False, #setting for visual tree generation-incredibly ram intensive
-    'min_link_search_delay': 3, # New setting: Minimum delay between link searches (seconds)
-    'max_link_search_delay': 7, # New setting: Maximum delay between link search delays (seconds)
+    'min_link_search_delay': 0, # New setting: Minimum delay between link searches (seconds)
+    'max_link_search_delay': 0, # New setting: Maximum delay between link search delays (seconds)
     'sequential_crawling_mode': True, # If True, max_crawler_workers will be set to 1 for sequential crawling
     'proxies': [], # List of proxies, e.g., ['http://user:pass@ip:port', 'socks5://user:pass@ip:port']. Leave empty to disable proxies.
-    'max_archiving_queue_size': 100,
-    'global_cooldown_on_error_duration': 120 # Global cooldown in seconds when a WebDriverException (e.g., connection error) occurs
+    'max_archiving_queue_size': 0
 }
 
 # Define a threading.local() object at the module level for WebDriver instances and requests sessions
@@ -56,10 +60,6 @@ _thread_local = threading.local()
 
 # Lock to ensure only one CAPTCHA prompt is active at a time
 captcha_prompt_lock = threading.Lock()
-
-# Global state for network error cooldown
-_global_network_error_cooldown_until = 0.0 # Timestamp until which global cooldown is active
-_global_network_error_lock = threading.Lock() # Lock to protect _global_network_error_cooldown_until
 
 # Define User-Agent components for dynamic generation
 OS_TYPES = [
@@ -351,13 +351,8 @@ def _get_links_from_page_content(base_url, driver):
             error_message_lower = str(e).lower()
             # Specifically check for 'connection refused' error code (111) or message
             if 'net::err_connection_refused' in error_message_lower or 'connection refused' in error_message_lower or '(connection aborted.)' in error_message_lower:
-                log_message('ERROR', f"A WebDriver error occurred (Connection Refused) while crawling {base_url}: {e}. Triggering global cooldown and retrying ({retries - attempt - 1} attempts left).")
-                with _global_network_error_lock:
-                    # Update the global cooldown timestamp, ensuring it only extends the cooldown
-                    _global_network_error_cooldown_until = max(
-                        _global_network_error_cooldown_until,
-                        time.time() + SETTINGS['global_cooldown_on_error_duration']
-                    )
+                log_message('ERROR', f"A WebDriver error occurred (Connection Refused) while crawling {base_url}: {e}. Skipping further crawling for this mother URL branch.")
+                raise ConnectionRefusedForCrawlerError(base_url) # Raise custom error to stop this branch
             else:
                 log_message('WARNING', f"A non-connection-refused WebDriver error occurred while crawling {base_url}: {e}. Not triggering global cooldown but retrying ({retries - attempt - 1} attempts left).", debug_only=True)
             attempt += 1
@@ -374,6 +369,9 @@ def _crawl_single_page(url_to_crawl):
     driver = get_driver() # Get a new driver for each call
     try:
         links_on_page, relationships_on_page = _get_links_from_page_content(url_to_crawl, driver)
+    except ConnectionRefusedForCrawlerError as e:
+        log_message('INFO', f"Skipping crawling for mother URL branch starting from {e.args[0]} due to connection refused error.", debug_only=True)
+        return set(), [] # Return empty to indicate this branch is skipped
     finally:
         driver.quit() # Ensure the driver is closed
     return links_on_page, relationships_on_page # Return both discovered links and relationships
@@ -516,6 +514,9 @@ def main():
     all_link_relationships = [] # List to store all (source, target) link relationships for visual tree
     final_archive_results = [] # List to store results from archiving attempts
 
+    # Add a set to keep track of root domains that have encountered a connection refused error
+    skipped_root_domains = set() 
+
     # Set global archiving action
     global_choice = SETTINGS.get('default_archiving_action', 'n').lower()
     valid_choices = ['a', 'n', 's']
@@ -545,11 +546,12 @@ def main():
             log_message('WARNING', f"Invalid URL format for {url}. Skipping.", debug_only=True)
             continue
         normalized_url = normalize_url(url)
+        root_domain = get_root_domain(urlparse(normalized_url).netloc)
 
         if normalized_url not in visited_urls:
             log_message('INFO', f"Adding initial URL to queues: {normalized_url}", debug_only=True)
             visited_urls.add(normalized_url)
-            crawling_queue.append(normalized_url)
+            crawling_queue.append((normalized_url, root_domain)) # Store URL along with its root domain
             queue_for_archiving.append(normalized_url)
 
     log_message('INFO', f"Starting main processing loop with {len(crawling_queue)} initial URLs.", debug_only=True)
@@ -567,10 +569,17 @@ def main():
             current_crawler_capacity = (max_crawler_workers_resolved if max_crawler_workers_resolved is not None else 65) - len(crawling_futures_set)
             archiving_load = len(archiving_futures_set) + len(queue_for_archiving)
 
-            if archiving_load >= SETTINGS['max_archiving_queue_size'] * 2:
+            # Modify this condition to properly handle max_archiving_queue_size = 0 (infinite)
+            if SETTINGS['max_archiving_queue_size'] != 0 and archiving_load >= SETTINGS['max_archiving_queue_size'] * 2:
                 log_message('INFO', f"CRAWLER PAUSED: Archiving load ({archiving_load}) exceeds buffer ({SETTINGS['max_archiving_queue_size'] * 2}). Halting new crawling tasks.", debug_only=True)
             elif crawling_queue and current_crawler_capacity > 0:
-                url_to_crawl = crawling_queue.popleft()
+                url_to_crawl, url_root_domain = crawling_queue.popleft() # Get URL and its root domain
+
+                # Check if the root domain of this URL has been marked as skipped
+                if url_root_domain in skipped_root_domains:
+                    log_message('INFO', f"Skipping {url_to_crawl} as its mother URL branch ({url_root_domain}) encountered a connection refused error.", debug_only=True)
+                    continue # Skip this URL and do not submit a task
+
                 log_message('DEBUG', f"Submitting crawling task for: {url_to_crawl}", debug_only=True)
                 future = crawler_executor.submit(_crawl_single_page, url_to_crawl)
                 crawling_futures_set.add(future)
@@ -591,10 +600,16 @@ def main():
                             visited_urls.add(new_link)
                             # Only add to crawling_queue if not an irrelevant link
                             if not is_irrelevant_link(new_link):
-                                crawling_queue.append(new_link)
+                                new_link_root_domain = get_root_domain(urlparse(new_link).netloc)
+                                crawling_queue.append((new_link, new_link_root_domain)) # Store new link with its root domain
                                 log_message('DISCOVERED', new_link, debug_only=False) # Always show DISCOVERED
                             # Always add to archiving queue, regardless of irrelevancy for crawling
                             queue_for_archiving.append(new_link)
+                except ConnectionRefusedForCrawlerError as e:
+                    mother_url_that_failed = e.args[0]
+                    failed_root_domain = get_root_domain(urlparse(mother_url_that_failed).netloc)
+                    skipped_root_domains.add(failed_root_domain)
+                    log_message('ERROR', f"Crawl stopped for mother URL branch '{failed_root_domain}' due to connection refused error.")
                 except Exception as e:
                     log_message('ERROR', f"Error during crawling task: {e}", debug_only=True)
 
@@ -602,9 +617,9 @@ def main():
             # Submit new archiving tasks if:
             # 1. There are URLs in the archiving queue.
             # 2. The number of active archiving tasks is below the configured max_archiving_queue_size.
-            if queue_for_archiving and len(archiving_futures_set) < SETTINGS['max_archiving_queue_size']:
+            if queue_for_archiving and (SETTINGS['max_archiving_queue_size'] == 0 or len(archiving_futures_set) < SETTINGS['max_archiving_queue_size']):
                 link_to_archive = queue_for_archiving.popleft()
-                log_message('DEBUG', f"Submitting archiving task for: {link_to_archive}", debug_only=True)
+                log_message('INFO', f"Submitting archiving task for: {link_to_archive} (Queue: {len(queue_for_archiving)} remaining, Active: {len(archiving_futures_set)})")
                 future = archiver_executor.submit(process_link_for_archiving, link_to_archive, global_choice)
                 archiving_futures_set.add(future)
 
@@ -616,7 +631,7 @@ def main():
                 try:
                     result = future.result()
                     final_archive_results.append(result)
-                    log_message('DEBUG', f"Archiving result: {result}", debug_only=True)
+                    log_message('INFO', f"Archiving result: {result} (Queue: {len(queue_for_archiving)} remaining, Active: {len(archiving_futures_set)})")
                 except Exception as e:
                     final_archive_results.append(f"[FAILED] Archiving task failed with error: {e}")
                     log_message('ERROR', f"Error during archiving task: {e}", debug_only=True)
