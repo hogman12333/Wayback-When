@@ -9,8 +9,8 @@ Archives smartly: Checks if a page was saved recently to avoid wasting time on r
 
 # New Additions and Enhancements in V1.1
 
-## Max File size
-- Impliment a user chosen max file size, so when uploading Websites, it does not download too many files
+## ~~Max File size~~
+-  ~~Impliment a user chosen max file size, so when uploading Websites, it does not download too many files~~
 
 ## Further Optimisation
 - Optimise and speed up Scraping and archiving, while keeping Memory And CPU usage as low as possible
