@@ -37,19 +37,29 @@ class CaptchaDetectedError(Exception):
 SETTINGS = {
     'archiving_cooldown': 7, # Default cooldown in days
     'urls_per_minute_limit': 15, # Max URLs to archive per minute
-    'max_crawler_workers': 0, # Max concurrent workers for website crawling (0 for unlimited) - affects RAM usage massively
+    'max_crawler_workers': 1, # Max concurrent workers for website crawling (0 for unlimited)
     'retries': 5, # Max retries for archiving a single link
     'default_archiving_action': 'N', # Default archiving action: 'n' (Normal), 'a' (Archive All), 's' (Skip All)
     'debug_mode': False, # Set to True to enable debug messages, False to disable
     'max_archiver_workers': 0,
-    'enable_visual_tree_generation': False #setting for visual tree generation-incredibly ram intensive
+    'enable_visual_tree_generation': False, #setting for visual tree generation-incredibly ram intensive
+    'min_link_search_delay': 3, # New setting: Minimum delay between link searches (seconds)
+    'max_link_search_delay': 7, # New setting: Maximum delay between link search delays (seconds)
+    'sequential_crawling_mode': True, # If True, max_crawler_workers will be set to 1 for sequential crawling
+    'proxies': [], # List of proxies, e.g., ['http://user:pass@ip:port', 'socks5://user:pass@ip:port']. Leave empty to disable proxies.
+    'max_archiving_queue_size': 100,
+    'global_cooldown_on_error_duration': 120 # Global cooldown in seconds when a WebDriverException (e.g., connection error) occurs
 }
 
-# Define a threading.local() object at the module level for WebDriver instances
+# Define a threading.local() object at the module level for WebDriver instances and requests sessions
 _thread_local = threading.local()
 
 # Lock to ensure only one CAPTCHA prompt is active at a time
 captcha_prompt_lock = threading.Lock()
+
+# Global state for network error cooldown
+_global_network_error_cooldown_until = 0.0 # Timestamp until which global cooldown is active
+_global_network_error_lock = threading.Lock() # Lock to protect _global_network_error_cooldown_until
 
 # Define User-Agent components for dynamic generation
 OS_TYPES = [
@@ -125,12 +135,18 @@ def get_driver():
     # Explicitly set the binary location for google-chrome-stable
     options.binary_location = '/usr/bin/google-chrome'
 
+    # Add proxy if available
+    if SETTINGS['proxies']:
+        proxy = random.choice(SETTINGS['proxies'][0]) # Select from the inner list
+        options.add_argument(f'--proxy-server={proxy}')
+        log_message('DEBUG', f"Using proxy for Selenium: {proxy}", debug_only=True)
+
     # Configure Chrome to not download files automatically
     prefs = {
         "download.prompt_for_download": False,
         "download.directory_upgrade": True,
         "safebrowsing.enabled": True,
-        "download.default_directory": "/dev/null" # Set a dummy directory, downloads will be suppressed
+        "download.default_directory": "/dev/null"
     }
     options.add_experimental_option("prefs", prefs)
 
@@ -149,9 +165,25 @@ def get_driver():
             )
 
     driver.set_page_load_timeout(240) # Set page load timeout to 240 seconds (4 minutes)
-    driver.command_executor.set_timeout(300) # Set command executor timeout to 300 seconds (5 minutes)
+    driver.implicitly_wait(10) # seconds. This is an example, adjust as needed.
+
     return driver
 
+
+def get_requests_session():
+    """Returns a requests.Session object configured with retries and a random proxy if available."""
+    session = requests.Session()
+    session.mount('http://', adapter)
+    session.mount('https://', adapter)
+
+    if SETTINGS['proxies']:
+        proxy = random.choice(SETTINGS['proxies'][0]) # Select from the inner list
+        session.proxies = {
+            'http': proxy,
+            'https': proxy,
+        }
+        log_message('DEBUG', f"Using proxy for requests session: {proxy}", debug_only=True)
+    return session
 
 # Configure a retry strategy once, to be used for each new session
 retry_strategy = Retry(
@@ -163,7 +195,7 @@ retry_strategy = Retry(
 adapter = HTTPAdapter(max_retries=retry_strategy)
 
 # Define irrelevant extensions and path segments globally
-IRRELEVANT_EXTENSIONS = ('.3g2', '.3gp', '.7z', '.aac', '.accdb', '.ace', '.aif', '.aiff', '.ai', '.apk', '.arj', '.arw', '.asm', '.azw3', '.bak', '.bash', '.bin', '.blend', '.bmp', '.bz2', '.cab', '.cache', '.c', '.cso', '.conf', '.cpp', '.cr2', '.crt', '.cs', '.csv', '.dat', '.dae', '.deb', '.dmg', '.doc', '.docx', '.drv', '.dxf', '.dwg', '.eml', '.eps', '.epub', '.exe', '.fbx', '.fish', '.flac', '.flv', '.fon', '.gb', '.gba', '.gif', '.go', '.gz', '.h', '.har', '.hpp', '.ics', '.ico', '.igs', '.img', '.ini', '.iso', '.java', '.jpeg', '.jpg', '.js', '.json', '.key', '.kt', '.kts', '.lock', '.log', '.lua', '.lz', '.lzma', '.m', '.map', '.max', '.mdb', '.mid', '.midi', '.mkv', '.mobi', '.mov', '.mp3', '.mp4', '.mpg', '.mpeg', '.msg', '.msi', '.msm', '.msp', '.nef', '.nes', '.obj', '.odp', '.ods', '.odt', '.ogg', '.old', '.opus', '.orf', '.otf', '.pak', '.pcap', '.pcapng', '.pem', '.pdf', '.php', '.pl', '.ply', '.png', '.ppt', '.pptx', '.prn', '.ps', '.py', '.qbb', '.qbw', '.qfx', '.rar', '.rb', '.rm', '.rmvb', '.rom', '.rpm', '.rs', '.rtf', '.r', '.rfa', '.rvt', '.s', '.sav', '.sh', '.sit', '.sitx', '.skp', '.so', '.sqlite', '.sqlite3', '.stl', '.step', '.stp', '.sub', '.swift', '.sys', '.tar', '.temp', '.tif', '.tiff', '.tmp', '.toml', '.tsv', '.ttf', '.uue', '.vhd', '.vhdx', '.vmdk', '.vtt', '.wav', '.wbmp', '.webm', '.webp', '.wma', '.woff', '.woff2', '.wps', '.wmv', '.xcf', '.xls', '.xlsx', '.xml', '.xz', '.yaml', '.yml', '.z', '.zip', '.zsh')
+IRRELEVANT_EXTENSIONS = ('.3g2', '.3gp', '.7z', '.aac', '.accdb', '.ace', '.aif', '.aiff', '.ai', '.apk', '.arj', '.arw', '.asm', '.azw3', '.bak', '.bash', '.bin', '.blend', '.bmp', '.bz2', '.cab', '.cache', '.c', '.cso', '.conf', '.cpp', '.cr2', '.crt', '.cs', '.csv', '.dat', '.dae', '.deb', '.dmg', '.doc', '.docx', '.drv', '.dxf', '.dwg', '.eml', '.eps', '.epub', '.exe', '.fbx', '.fish', '.flac', '.flv', '.fon', '.gb', '.gba', '.gif', '.go', '.gz', '.h', '.har', '.hpp', '.ics', '.ico', '.igs', '.img', '.ini', '.iso', '.java', '.jpeg', '.jpg', '.js', '.json', '.key', '.kt', '.kts', '.lock', '.log', '.lua', '.lz', '.lzma', '.m', '.map', '.max', '.mdb', '.mid', '.midi', '.mkv', '.mobi', '.mov', '.mp3', '.mp4', '.mpg', '.mpeg', '.msg', '.msi', '.msm', '.msp', '.nef', '.nes', '.obj', '.odp', '.ods', '.odt', '.ogg', '.old', '.opus', '.orf', '.otf', '.pak', '.pcap', '.pcapng', '.pem', '.pdf', '.php', '.pl', '.ply', '.png', '.ppt', '.pptx', '.prn', '.ps', '.py', '.qbb', '.qbw', '.qfx', '.rar', '.rb', '.rm', '.rmvb', '.rom', '.rpm', '.rs', '.rtf', '.r', '.rfa', '.rvt', '.s', '.sav', '.sh', '.sit', '.sitx', '.skp', '.so', '.sqlite', '.sqlite3', '.stl', '.step', '.stp', '.sub', '.swift', '.sys', '.tar', '.temp', '.tif', '.tiff', '.tmp', '.toml', '.tsv', '.ttf', '.uue', '.vhd', '.vhdx', '.vmdk', '.vtt', '.wav', '.wbmp', '.webm', '.webp', '.wma', '.woff', '.woff2', '.wps', '.wmv', '.xcf', '.xls', '.xlsx', '.ppt', '.pptx', '.xml', '.xz', '.yaml', '.yml', '.z', '.zip', '.zsh')
 IRRELEVANT_PATH_SEGMENTS = ('/cdn-cgi/', '/assets/', '/uploads/', '/wp-content/', '/wp-includes/', '/themes/', '/plugins/', '/node_modules/', '/static/', '/javascript/', '/css/', '/img/')
 
 def log_message(level, message, debug_only=False):
@@ -228,13 +260,13 @@ def is_irrelevant_link(url):
             return True
     return False
 
-def get_internal_links(base_url, driver): # Modified to accept a driver object
-    """Scrapes a given URL to find all internal links and returns them as a set.
+def _get_links_from_page_content(base_url, driver):
+    """Scrapes a given URL to find all internal links and returns them as a set, along with relationships.
 
-    This function uses a browser-like User-Agent and retry logic for robustness.
     Contributors: Consider enhancing error handling for different HTTP status codes or improving URL normalization.
     """
     links = set()
+    relationships_on_page = [] # New list to store (source_url, discovered_link) tuples
 
     # Extract the domain from the base_url and its root domain
     parsed_base_url = urlparse(base_url)
@@ -242,25 +274,24 @@ def get_internal_links(base_url, driver): # Modified to accept a driver object
     base_root_domain = get_root_domain(base_netloc)
     normalized_base_url_for_comparison = normalize_url(base_url) # Normalize base_url for comparison
 
-    log_message('DEBUG', f"Starting get_internal_links for base_url: {base_url} with base_netloc: {base_netloc} and root_domain: {base_root_domain}", debug_only=True)
+    log_message('DEBUG', f"Starting _get_links_from_page_content for base_url: {base_url} with base_netloc: {base_netloc} and root_domain: {base_root_domain}", debug_only=True)
 
     retries = SETTINGS['retries'] # Use the 'retries' setting
     attempt = 0
     while attempt < retries:
         try:
             # Select a random user agent for the current request
-            random_user_agent = generate_random_user_agent() # Use the new generator
+            random_user_agent = generate_random_user_agent()
             # Set the user agent for the current request using CDP command
             driver.execute_cdp_cmd('Network.setUserAgentOverride', {'userAgent': random_user_agent})
 
             # Navigate to the base_url using Selenium
             driver.get(base_url)
 
-            # Add a small delay to ensure page elements are loaded ---
-            # Randomize sleep duration between 2 and 5 seconds
-            time.sleep(random.uniform(2, 5))
+            # Add a small delay to ensure page elements are loaded, improving stealth
+            time.sleep(random.uniform(SETTINGS['min_link_search_delay'], SETTINGS['max_link_search_delay']))
 
-            # CAPTCHA Detection (keep this as it is)
+            # CAPTCHA Detection
             captcha_indicators = [
                 (By.ID, 'g-recaptcha'),
                 (By.CLASS_NAME, 'g-recaptcha'),
@@ -274,10 +305,9 @@ def get_internal_links(base_url, driver): # Modified to accept a driver object
 
             if captcha_detected:
                 with captcha_prompt_lock:
-                    log_message('WARNING', f"CAPTCHA DETECTED for {base_url}. Waiting 5-10 seconds before attempting to continue...")
-                    time.sleep(random.uniform(5, 10)) # Wait for a random time between 5 and 10 seconds
-                    log_message('INFO', "Attempting to continue after automated wait...")
-                    # After waiting, the code will proceed to re-attempt scraping implicitly
+                    log_message('WARNING', f"CAPTCHA DETECTED for {base_url}. Waiting 5-10 seconds before attempting to continue...", debug_only=True)
+                    time.sleep(random.uniform(5, 10))
+                    log_message('INFO', "Attempting to continue after automated wait...", debug_only=True)
 
             # Find all anchor tags (<a>) that have an 'href' attribute using Selenium
             log_message('DEBUG', f"Page loaded for {base_url}. Extracting links...", debug_only=True)
@@ -301,29 +331,52 @@ def get_internal_links(base_url, driver): # Modified to accept a driver object
                     if link_root_domain == base_root_domain and clean_url.startswith(normalized_base_url_for_comparison):
                         log_message('DEBUG', f"Adding internal link: {clean_url} (Root domain: {link_root_domain}, is sub-path of base_url)", debug_only=True)
                         links.add(clean_url)
+                        # Only add relationship if visual tree generation is enabled
+                        if SETTINGS['enable_visual_tree_generation']:
+                            relationships_on_page.append((base_url, clean_url))
                     else:
                         log_message('DEBUG', f"Skipping external or parent link: {full_url} (Link root domain: {link_root_domain} != Base root domain: {base_root_domain} OR not sub-path of base_url)", debug_only=True)
             if not found_any_href:
                 log_message('DEBUG', f"No href attributes found on {base_url} by Selenium.", debug_only=True)
 
             log_message('DEBUG', f"Finished processing {base_url}. Discovered {len(links)} links.", debug_only=True)
-            return links # If successful, break retry loop and return links
+            return links, relationships_on_page # Return both discovered links and relationships
 
-        # Handle specific HTTP errors during the request (Selenium errors are different from requests)
         except TimeoutException:
-            log_message('WARNING', f"Page load timed out for {base_url}. Retrying ({retries - attempt - 1} attempts left).")
+            log_message('WARNING', f"Page load timed out for {base_url}. Retrying ({retries - attempt - 1} attempts left).", debug_only=True)
             attempt += 1
             time.sleep(random.uniform(5, 15)) # Longer, randomized delay
         except WebDriverException as e:
-            log_message('ERROR', f"A WebDriver error occurred while crawling {base_url}: {e}. Retrying ({retries - attempt - 1} attempts left).")
+            # This can catch ConnectionRefusedError, DNS errors, etc., as reported by Selenium
+            error_message_lower = str(e).lower()
+            # Specifically check for 'connection refused' error code (111) or message
+            if 'net::err_connection_refused' in error_message_lower or 'connection refused' in error_message_lower or '(connection aborted.)' in error_message_lower:
+                log_message('ERROR', f"A WebDriver error occurred (Connection Refused) while crawling {base_url}: {e}. Triggering global cooldown and retrying ({retries - attempt - 1} attempts left).")
+                with _global_network_error_lock:
+                    # Update the global cooldown timestamp, ensuring it only extends the cooldown
+                    _global_network_error_cooldown_until = max(
+                        _global_network_error_cooldown_until,
+                        time.time() + SETTINGS['global_cooldown_on_error_duration']
+                    )
+            else:
+                log_message('WARNING', f"A non-connection-refused WebDriver error occurred while crawling {base_url}: {e}. Not triggering global cooldown but retrying ({retries - attempt - 1} attempts left).", debug_only=True)
             attempt += 1
             time.sleep(random.uniform(5, 15)) # Longer, randomized delay
         except Exception as e:
-            log_message('ERROR', f"An unexpected error occurred while crawling {base_url} with Selenium: {e}. Retrying ({retries - attempt - 1} attempts left).")
+            log_message('ERROR', f"An unexpected error occurred while crawling {base_url}: {e}. Retrying ({retries - attempt - 1} attempts left).", debug_only=True)
             attempt += 1
             time.sleep(random.uniform(5, 15)) # Longer, randomized delay
-    log_message('ERROR', f"Failed to retrieve {base_url} after {retries} attempts.")
-    return links
+    log_message('ERROR', f"Failed to retrieve {base_url} after {retries} attempts.", debug_only=True)
+    return set(), [] # Return empty set and list on failure
+
+def _crawl_single_page(url_to_crawl):
+    """Wrapper function to manage WebDriver instance for a single page crawl."""
+    driver = get_driver() # Get a new driver for each call
+    try:
+        links_on_page, relationships_on_page = _get_links_from_page_content(url_to_crawl, driver)
+    finally:
+        driver.quit() # Ensure the driver is closed
+    return links_on_page, relationships_on_page # Return both discovered links and relationships
 
 def should_archive(url, global_archive_action):
     """Determines if a URL should be archived based on a global action or a custom check.
@@ -331,7 +384,8 @@ def should_archive(url, global_archive_action):
     Contributors: Consider adding more sophisticated checks for archiving, e.g., checking content changes.
     """
     user_agent = generate_random_user_agent() # Use the new generator
-    wayback = waybackpy.Url(url, user_agent) # Initialize WaybackPy URL object
+    requests_session = get_requests_session() # Get a new session with a random proxy for each archive check
+    wayback = waybackpy.Url(url, user_agent) # Initialize WaybackPy URL object without session
 
     # If the global action is 'a' (Archive All) or 's' (Skip All), we just return the boolean
     # and let the calling function handle consolidated printing.
@@ -363,21 +417,21 @@ def should_archive(url, global_archive_action):
                 return False, wayback
             # Otherwise, the URL needs archiving
             else:
-                log_message('INFO', f"Needs Archive: {url} (Last archived {time_diff.total_seconds() // 3600:.1f} hours ago, > {SETTINGS['archiving_cooldown']*24} hours)")
+                log_message('INFO', f"Needs Archive: {url} (Last archived {time_diff.total_seconds() // 3600:.1f} hours ago, > {SETTINGS['archiving_cooldown']*24} hours)", debug_only=True)
                 return True, wayback
 
         # Handle cases where no existing archive record is found for the URL
         except waybackpy.exceptions.NoCDXRecordFound:
-            log_message('INFO', f"No existing archive found for {url}. Archiving.")
+            log_message('INFO', f"No existing archive found for {url}. Archiving.", debug_only=True)
             return True, wayback
         # Handle other unexpected errors during the archive check
         except Exception as e:
             attempt += 1
             if attempt < retries:
-                log_message('WARNING', f"An error occurred while checking archive for {url}: {e}. Retrying ({retries - attempt} attempts left).")
+                log_message('WARNING', f"An error occurred while checking archive for {url}: {e}. Retrying ({retries - attempt} attempts left).", debug_only=True)
                 time.sleep(5) # Wait before retrying the archive check
             else:
-                log_message('ERROR', f"Failed to check archive for {url} after {retries} attempts: {e}. Defaulting to archive.")
+                log_message('ERROR', f"Failed to check archive for {url} after {retries} attempts: {e}. Defaulting to archive.", debug_only=True)
                 return True, wayback # Default to archive if all retries fail
     return False, wayback # Should not be reached if retries are handled correctly or success occurs
 
@@ -389,7 +443,7 @@ last_archive_time = 0.0
 MIN_ARCHIVE_DELAY_SECONDS = 60 / SETTINGS['urls_per_minute_limit']
 
 def process_link_for_archiving(link, global_archive_action):
-    """Checks if a link needs archiving and attempts to save it to Wayback Machine with rate limiting and retries.
+    """Checks if a link needs archiving and attempts to save it to Wayback Machine with rate limiting and retries.Z
 
     Contributors: Optimizing rate limiting or adding more detailed logging for archive results would be valuable.
     """
@@ -408,7 +462,7 @@ def process_link_for_archiving(link, global_archive_action):
                 # If the elapsed time is less than the minimum required delay, pause.
                 if elapsed < MIN_ARCHIVE_DELAY_SECONDS:
                     sleep_duration = MIN_ARCHIVE_DELAY_SECONDS - elapsed
-                    log_message('RATE LIMIT', f"Sleeping for {sleep_duration:.2f} seconds before archiving {link}")
+                    log_message('RATE LIMIT', f"Sleeping for {sleep_duration:.2f} seconds before archiving {link}", debug_only=True)
                     time.sleep(sleep_duration)
 
                 # Update the last archive time after potentially sleeping
@@ -425,7 +479,7 @@ def process_link_for_archiving(link, global_archive_action):
 
                 retries -= 1
                 if rate_limit_keyword in error_message:
-                    log_message('WARNING', f"Wayback Machine rate limit hit for {link}. Pausing for 1 minute before retrying ({retries} attempts left).")
+                    log_message('WARNING', f"Wayback Machine rate limit hit for {link}. Pausing for 1 minute before retrying ({retries} attempts left).", debug_only=True)
                     time.sleep(60) # Pause for 1 minutes (60 seconds)
                 elif retries > 0:
                     log_message('WARNING', f"Could not save {link}: {e}. Retrying ({retries} attempts left)...")
@@ -437,219 +491,178 @@ def process_link_for_archiving(link, global_archive_action):
     else:
         return f"[SKIPPED] {link}"
 
-# Wrapper function to manage thread-local driver instances
-def wrapper_get_internal_links(url_to_crawl):
-    # Check if a WebDriver instance already exists for the current thread
-    if not hasattr(_thread_local, 'driver'):
-        # If no driver exists, create a new one and store it in _thread_local
-        _thread_local.driver = get_driver()
-
-    # Use the thread-local driver for scraping
-    links = get_internal_links(url_to_crawl, _thread_local.driver)
-    return links
-
-def crawl_website(base_url, archiver_executor, archiving_futures, global_archive_action, link_relationships): # Added link_relationships
-    """
-    Performs a breadth-first search (BFS) to discover all internal links within a given base URL.
-    Uses parallel processing for efficient scraping.
-    """
-    # Initialize a deque (double-ended queue) for BFS, starting with the base_url
-    queue = deque()
-    # Keep track of visited URLs to avoid redundant processing and infinite loops
-    visited_urls = set()
-    # Stores all unique internal links discovered during the crawl
-    all_unique_internal_links = set()
-
-    # Check if the base_url itself is an irrelevant link (e.g., a direct download file)
-    if is_irrelevant_link(base_url):
-        log_message('SKIPPED CRAWL', f"Initial URL {base_url} is an irrelevant link. Not crawling, but will attempt to archive.")
-        all_unique_internal_links.add(base_url)
-        visited_urls.add(base_url)
-        if archiver_executor:
-            log_message('DEBUG', f"Submitting initial irrelevant URL for archiving: {base_url}", debug_only=True)
-            archiving_futures.append(archiver_executor.submit(process_link_for_archiving, base_url, global_archive_action))
-        return all_unique_internal_links, link_relationships
-    else:
-        # If not an irrelevant link, proceed with normal crawling process
-        queue.append(base_url)
-        visited_urls.add(base_url)
-        all_unique_internal_links.add(base_url)
-        # Submit the base_url for archiving if an archiver_executor is provided
-        if archiver_executor:
-            log_message('DEBUG', f"Submitting base URL for archiving: {base_url}", debug_only=True)
-            archiving_futures.append(archiver_executor.submit(process_link_for_archiving, base_url, global_archive_action))
-
-    try:
-        # Determine max_workers based on SETTINGS
-        max_workers = SETTINGS['max_crawler_workers']
-        if max_workers == 0:
-            max_workers = None # Set to None for unlimited workers (ThreadPoolExecutor default)
-
-        # Use ThreadPoolExecutor for concurrent processing of `wrapper_get_internal_links` calls
-        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
-            while queue:
-                # Define a batch size for processing URLs in parallel
-                batch_size = SETTINGS['max_crawler_workers'] if SETTINGS['max_crawler_workers'] > 0 else 65 # Use max_crawler_workers as batch size, or a reasonable default if unlimited
-                current_batch_urls = [] # Stores just URLs, no longer (url, driver)
-
-                # Populate the batch with URLs from the queue, up to `batch_size`
-                while queue and len(current_batch_urls) < batch_size:
-                    url_to_crawl = queue.popleft() # Get the next URL from the front of the queue
-                    current_batch_urls.append(url_to_crawl) # Append just the URL
-
-                # If the current batch is empty, there are no more URLs to process
-                if not current_batch_urls:
-                    break
-
-                log_message('INFO', f"Processing batch of {len(current_batch_urls)} URLs for crawling.")
-
-                futures = {executor.submit(wrapper_get_internal_links, url_to_crawl): url_to_crawl for url_to_crawl in current_batch_urls}
-
-                for future in concurrent.futures.as_completed(futures):
-                    url_to_crawl = futures[future]
-                    try:
-                        new_links_from_url = future.result()
-                        # Ensure new_links_from_url is an iterable (e.g., set), even if an error occurred in wrapper_get_internal_links
-                        if new_links_from_url is None: # This should not happen if wrapper_get_internal_links somehow returns None
-                            continue # Skip if wrapper_get_internal_links somehow returns None
-
-                        for link in new_links_from_url:
-                            # Only add and potentially archive if the link is truly new and hasn't been visited
-                            if link not in visited_urls:
-                                all_unique_internal_links.add(link) # Add discovered link to the overall set
-                                visited_urls.add(link)
-
-                                if not is_irrelevant_link(link):
-                                    queue.append(link) # Only queue for crawling if it's not an irrelevant link
-                                    log_message('DISCOVERED', link) # Log if it's actually going to be crawled
-                                else:
-                                    log_message('SKIPPED CRAWL', f"Skipping crawl for {link} due to irrelevant extension/path.")
-
-                                # Conditionally capture parent-child relationship
-                                if SETTINGS['enable_visual_tree_generation']:
-                                    link_relationships.append((url_to_crawl, link))
-
-                                # Submit new link for archiving if archiver_executor is provided
-                                if archiver_executor:
-                                    log_message('DEBUG', f"Submitting link for archiving: {link}", debug_only=True)
-                                    archiving_futures.append(archiver_executor.submit(process_link_for_archiving, link, global_archive_action))
-                    except CaptchaDetectedError as e:
-                        # This exception will only be caught if the user explicitly chose 'skip' in the CAPTCHA prompt
-                        # or if an unexpected CAPTCHA-related error occurred that wasn't handled by the prompt loop.
-                        log_message('WARNING', f"CAPTCHA detection handled for {url_to_crawl}. Continuing with other URLs.")
-                        # No need to shutdown executor here, as the user opted to skip or continue.
-                    except Exception as e:
-                        log_message('ERROR', f"An error occurred while processing {url_to_crawl}: {e}")
-                        # Continue with other URLs, but log the error.
-    except Exception as e:
-        log_message('ERROR', f"An unexpected error occurred during website crawling: {e}")
-        return set(), [] # Explicitly return an empty set and empty list on error
-    finally:
-        # Note: WebDriver instances are no longer explicitly quit after each URL.
-        # They will persist for the lifetime of their respective worker threads within the ThreadPoolExecutor.
-        # Proper cleanup (driver.quit()) should ideally be handled when the ThreadPoolExecutor itself shuts down,
-        # which might require more advanced patterns for explicit resource management with concurrent.futures.
-        pass
-
-    return all_unique_internal_links, link_relationships # Return both discovered links and relationships
-
 def main():
     """
     Main function to orchestrate the website crawling and archiving process.
-
-    Contributors: Consider adding command-line argument parsing for URLs, or integrating a configuration file.
     """
-    clear_output(wait=True) # Clear output at the very beginning for a cleaner console
+    clear_output(wait=True)
 
     # Prompt the user to enter one or more URLs
     target_urls_input = input("Enter URLs (comma-separated, e.g., https://notawebsite.org/, https://example.com/): ").strip()
     # Split the input string by commas and clean up whitespace, filtering out empty strings
-    initial_urls = [url.strip() for url in target_urls_input.split(',') if url.strip()]
+    initial_urls_raw = [url.strip() for url in target_urls_input.split(',') if url.strip()]
 
     # If no valid URLs were entered, exit the function
-    if not initial_urls:
-        log_message('INFO', "No valid URLs entered.")
+    if not initial_urls_raw:
+        log_message('INFO', "No valid URLs entered.", debug_only=True)
         return
 
-    all_discovered_links = set() # Set to store all unique internal links found across all initial URLs
-    all_link_relationships = [] # List to store all (source, target) link relationships
-    archiving_futures = [] # List to hold futures for archiving tasks
-    crawling_futures = [] # New list to hold futures for crawling tasks
+    # --- Initialize Queues and Sets for concurrent management ---
+    crawling_queue = deque() # URLs waiting to be crawled
+    queue_for_archiving = deque() # URLs waiting to be archived
+    visited_urls = set() # All unique URLs encountered (crawled or added to a queue)
+    crawling_futures_set = set() # Set of active Future objects for crawling tasks
+    archiving_futures_set = set() # Set of active Future objects for archiving tasks
+    all_link_relationships = [] # List to store all (source, target) link relationships for visual tree
+    final_archive_results = [] # List to store results from archiving attempts
 
-    # Set global archiving action based on SETTINGS, with validation and fallback
-    global_choice = SETTINGS.get('default_archiving_action', 'n').lower() # Default to 'n' if not set or invalid
+    # Set global archiving action
+    global_choice = SETTINGS.get('default_archiving_action', 'n').lower()
     valid_choices = ['a', 'n', 's']
     if global_choice not in valid_choices:
-        log_message('WARNING', f"Invalid default_archiving_action '{global_choice}' found in SETTINGS. Falling back to 'Normal' archiving.")
+        log_message('WARNING', f"Invalid default_archiving_action '{global_choice}' found in SETTINGS. Falling back to 'Normal' archiving.", debug_only=True)
         global_choice = 'n'
 
     # Determine max_crawler_workers and max_archiver_workers based on SETTINGS
-    max_crawler_workers = SETTINGS['max_crawler_workers']
-    if max_crawler_workers == 0:
-        max_crawler_workers = None # Set to None for unlimited workers
+    max_crawler_workers_setting = SETTINGS['max_crawler_workers']
+    if SETTINGS.get('sequential_crawling_mode', False):
+        max_crawler_workers_resolved = 1 # Force to 1 worker for sequential mode
+        log_message('INFO', "Sequential crawling mode is enabled. Crawling with 1 worker.", debug_only=True)
+    elif max_crawler_workers_setting == 0:
+        max_crawler_workers_resolved = None # Set to None for unlimited workers
+    else:
+        max_crawler_workers_resolved = max_crawler_workers_setting
 
-    max_archiver_workers = SETTINGS['max_archiver_workers']
-    if max_archiver_workers == 0:
-        max_archiver_workers = None # Set to None for unlimited workers
+    max_archiver_workers_setting = SETTINGS['max_archiver_workers']
+    if max_archiver_workers_setting == 0:
+        max_archiver_workers_resolved = None # Set to None for unlimited workers
+    else:
+        max_archiver_workers_resolved = max_archiver_workers_setting
 
-    # Initialize both crawler and archiver executors
-    with concurrent.futures.ThreadPoolExecutor(max_workers=max_crawler_workers) as crawler_executor, \
-         concurrent.futures.ThreadPoolExecutor(max_workers=max_archiver_workers) as archiver_executor:
+    # Process initial URLs: normalize, add to visited, crawling queue, and archiving queue
+    for url in initial_urls_raw:
+        if not url.startswith("http"): # Basic validation
+            log_message('WARNING', f"Invalid URL format for {url}. Skipping.", debug_only=True)
+            continue
+        normalized_url = normalize_url(url)
 
-        for url in initial_urls:
-            # Basic validation to ensure the URL starts with 'http' or 'https'
-            if not url.startswith("http"):
-                log_message('WARNING', f"Invalid URL format for {url}. Skipping.")
-                continue
-            log_message('INFO', f"Starting crawl for initial URL: {url}")
-            # Submit crawling tasks to the crawler_executor
-            # Pass the all_link_relationships list to the crawl_website function
-            crawling_futures.append(
-                crawler_executor.submit(crawl_website, url, archiver_executor, archiving_futures, global_choice, all_link_relationships)
-            )
+        if normalized_url not in visited_urls:
+            log_message('INFO', f"Adding initial URL to queues: {normalized_url}", debug_only=True)
+            visited_urls.add(normalized_url)
+            crawling_queue.append(normalized_url)
+            queue_for_archiving.append(normalized_url)
 
-        # Process crawling results as they complete
-        log_message('INFO', "Waiting for crawling tasks to complete...")
-        for future in concurrent.futures.as_completed(crawling_futures):
-            try:
-                discovered_links_for_url, _ = future.result() # Unpack both returned values, but only use the first
-                all_discovered_links.update(discovered_links_for_url)
-            except Exception as e:
-                log_message('ERROR', f"Error during crawling task: {e}")
+    log_message('INFO', f"Starting main processing loop with {len(crawling_queue)} initial URLs.", debug_only=True)
 
-        log_message('INFO', f"Found {len(all_discovered_links)} unique internal links across all initial URLs.")
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max_crawler_workers_resolved) as crawler_executor, \
+         concurrent.futures.ThreadPoolExecutor(max_workers=max_archiver_workers_resolved) as archiver_executor:
 
-        # Clear previous output before providing archiving information
-        clear_output(wait=True)
+        while True:
+            # --- Section A: Crawling Task Submission ---
+            # Submit new crawling tasks if:
+            # 1. There are URLs in the crawling queue.
+            # 2. The number of active crawling tasks is below the max_crawler_workers limit.
+            # 3. The archiving system (queue + active futures) is not excessively backed up.
+            #    The 'max_archiving_queue_size * 2' is an arbitrary buffer to prevent crawler from overwhelming archiver.
+            current_crawler_capacity = (max_crawler_workers_resolved if max_crawler_workers_resolved is not None else 65) - len(crawling_futures_set)
+            archiving_load = len(archiving_futures_set) + len(queue_for_archiving)
 
-        # Print consolidated message for 'Archive All' or 'Skip All' actions
-        if global_choice == 'a':
-            log_message('INFO', f"Archiving action from settings: Archive All.")
-        elif global_choice == 's':
-            log_message('INFO', f"Archiving action from settings: Skip All.")
-        elif global_choice == 'n':
-            log_message('INFO', f"Archiving action from settings: Normal (respecting {SETTINGS['archiving_cooldown']*24}h rule).") # Updated message to reflect 'Normal' action.
+            if archiving_load >= SETTINGS['max_archiving_queue_size'] * 2:
+                log_message('INFO', f"CRAWLER PAUSED: Archiving load ({archiving_load}) exceeds buffer ({SETTINGS['max_archiving_queue_size'] * 2}). Halting new crawling tasks.", debug_only=True)
+            elif crawling_queue and current_crawler_capacity > 0:
+                url_to_crawl = crawling_queue.popleft()
+                log_message('DEBUG', f"Submitting crawling task for: {url_to_crawl}", debug_only=True)
+                future = crawler_executor.submit(_crawl_single_page, url_to_crawl)
+                crawling_futures_set.add(future)
 
-        log_message('INFO', f"Submitted {len(archiving_futures)} archiving tasks.")
-        log_message('INFO', "Waiting for all archiving tasks to complete...")
+            # --- Section B: Completed Crawling Tasks Processing ---
+            # Process results from completed crawling tasks
+            completed_crawling_futures = {f for f in crawling_futures_set if f.done()}
+            for future in completed_crawling_futures:
+                crawling_futures_set.remove(future)
+                try:
+                    discovered_links_on_page, relationships_on_page = future.result()
 
-        results = [] # List to store the results of archiving attempts
-        for future in concurrent.futures.as_completed(archiving_futures):
-            try:
-                results.append(future.result())
-            except Exception as e:
-                results.append(f"[FAILED] Archiving task failed with error: {e}")
+                    if SETTINGS['enable_visual_tree_generation']:
+                        all_link_relationships.extend(relationships_on_page)
+
+                    for new_link in discovered_links_on_page:
+                        if new_link not in visited_urls:
+                            visited_urls.add(new_link)
+                            # Only add to crawling_queue if not an irrelevant link
+                            if not is_irrelevant_link(new_link):
+                                crawling_queue.append(new_link)
+                                log_message('DISCOVERED', new_link, debug_only=False) # Always show DISCOVERED
+                            # Always add to archiving queue, regardless of irrelevancy for crawling
+                            queue_for_archiving.append(new_link)
+                except Exception as e:
+                    log_message('ERROR', f"Error during crawling task: {e}", debug_only=True)
+
+            # --- Section C: Archiving Task Submission ---
+            # Submit new archiving tasks if:
+            # 1. There are URLs in the archiving queue.
+            # 2. The number of active archiving tasks is below the configured max_archiving_queue_size.
+            if queue_for_archiving and len(archiving_futures_set) < SETTINGS['max_archiving_queue_size']:
+                link_to_archive = queue_for_archiving.popleft()
+                log_message('DEBUG', f"Submitting archiving task for: {link_to_archive}", debug_only=True)
+                future = archiver_executor.submit(process_link_for_archiving, link_to_archive, global_choice)
+                archiving_futures_set.add(future)
+
+            # --- Section D: Completed Archiving Tasks Processing ---
+            # Process results from completed archiving tasks
+            completed_archiving_futures = {f for f in archiving_futures_set if f.done()}
+            for future in completed_archiving_futures:
+                archiving_futures_set.remove(future)
+                try:
+                    result = future.result()
+                    final_archive_results.append(result)
+                    log_message('DEBUG', f"Archiving result: {result}", debug_only=True)
+                except Exception as e:
+                    final_archive_results.append(f"[FAILED] Archiving task failed with error: {e}")
+                    log_message('ERROR', f"Error during archiving task: {e}", debug_only=True)
+
+            # --- Section E: Termination Condition ---
+            # Break loop if all queues and active tasks are empty
+            if not crawling_queue and not crawling_futures_set and \
+               not queue_for_archiving and not archiving_futures_set:
+                log_message('INFO', "All crawling and archiving tasks completed. Exiting main loop.", debug_only=True)
+                break
+
+            # --- Section F: Sleep to prevent busy-waiting ---
+            # Only sleep if there's no immediate work to be done to avoid busy-waiting.
+            # This means if all queues are empty AND all futures sets are empty, we already broke.
+            # If there's work in queues or futures, we might want to keep checking more frequently.
+            # A small sleep is good practice to yield control and prevent 100% CPU usage.
+            if not crawling_queue and not queue_for_archiving and \
+               not crawling_futures_set and not archiving_futures_set: # Already handled by break above, but defensive
+                pass # No need to sleep if about to break
+            else:
+                time.sleep(0.1)
+
+    log_message('INFO', f"Found {len(visited_urls)} unique URLs processed (includes those not queued for crawling due to irrelevancy or already visited).", debug_only=True)
 
     # Clear output again before the final summary for cleanliness
     clear_output(wait=True)
 
-    log_message('INFO', "--- Archiving Summary ---")
-    for result in results:
+    # Print consolidated message for 'Archive All' or 'Skip All' actions
+    if global_choice == 'a':
+        log_message('INFO', f"Archiving action from settings: Archive All.", debug_only=True)
+    elif global_choice == 's':
+        log_message('INFO', f"Archiving action from settings: Skip All.", debug_only=True)
+    elif global_choice == 'n':
+        log_message('INFO', f"Archiving action from settings: Normal (respecting {SETTINGS['archiving_cooldown']*24}h rule).", debug_only=True)
+
+    log_message('INFO', f"Processed {len(final_archive_results)} archiving tasks.", debug_only=True)
+    log_message('INFO', "--- Archiving Summary ---", debug_only=True)
+    
+    # The final archive results are iterated through and printed directly, 
+    # so they are always visible without needing a debug_only flag here.
+    for result in final_archive_results:
         print(result)
 
     # If visual tree generation is enabled, proceed with graph generation
     if SETTINGS['enable_visual_tree_generation']:
-        log_message('INFO', "--- Generating Visual Link Tree ---")
+        log_message('INFO', "--- Generating Visual Link Tree ---", debug_only=True)
         G = nx.DiGraph() # Create a directed graph
 
         # Add nodes and edges from the collected relationships
@@ -658,68 +671,61 @@ def main():
 
         # If no nodes were added (e.g., no links found or only one URL crawled), log and exit
         if not G.nodes():
-            log_message('WARNING', "No graph nodes to display. Skipping visual tree generation.")
+            log_message('WARNING', "No graph nodes to display. Skipping visual tree generation.", debug_only=True)
             return
 
         # Set the 'mother' URL (first initial URL) to be at the center
-        mother_url = initial_urls[0] # Assuming the first URL is the 'mother' URL
-        fixed_pos = {mother_url: (0, 0)} # Fix the mother URL at the center
+        mother_url = initial_urls_raw[0] # Use the first raw input URL as mother for display context
+        fixed_pos = {normalize_url(mother_url): (0, 0)} # Fix the normalized mother URL at the center
 
         # Increase figure size for better readability
-        plt.figure(figsize=(16, 12)) # New line for larger figure size
+        plt.figure(figsize=(16, 12))
 
         # Use a layout that works well for trees/hierarchical structures
         # Pass the fixed_pos to spring_layout
-        pos = nx.spring_layout(G, k=0.15, iterations=50, seed=42, pos=fixed_pos, fixed=[mother_url]) # Increased iterations for better convergence
+        pos = nx.spring_layout(G, k=0.15, iterations=50, seed=42, pos=fixed_pos, fixed=[normalize_url(mother_url)])
 
         # Draw nodes with a smaller size and light color
         # Differentiate the mother_url node
-        node_colors = ['lightblue' if node != mother_url else 'red' for node in G.nodes()]
-        node_sizes = [100 if node != mother_url else 300 for node in G.nodes()]
+        node_colors = ['lightblue' if node != normalize_url(mother_url) else 'red' for node in G.nodes()]
+        node_sizes = [100 if node != normalize_url(mother_url) else 300 for node in G.nodes()]
         nx.draw_networkx_nodes(G, pos, node_size=node_sizes, node_color=node_colors, alpha=0.8)
 
         # Draw edges with arrows, light gray color, and lower alpha
         nx.draw_networkx_edges(G, pos, edgelist=G.edges(), edge_color='gray', arrows=True, arrowsize=10, alpha=0.6)
 
         # Draw labels for nodes, but only for a subset or if the graph is small, to prevent clutter
-        # For very large graphs, this might need to be optimized (e.g., only label root/important nodes)
         node_labels = {}
         for node in G.nodes():
             parsed_node = urlparse(node)
             label_candidate = parsed_node.netloc
             if parsed_node.path and parsed_node.path != '/':
-                # If the path is long, prioritize keeping some part of it visible.
-                # Combine domain and path for a more descriptive label.
                 label_candidate += parsed_node.path
 
             # Define a maximum length for the label to prevent excessive width
             max_label_length = 25 # This can be tuned for desired verbosity
 
             if len(label_candidate) > max_label_length:
-                # If the full combined label is too long, truncate it smartly.
-                # Try to keep the domain and a truncated part of the path.
                 domain_part = parsed_node.netloc
                 path_part = parsed_node.path if parsed_node.path and parsed_node.path != '/' else ''
 
                 if len(domain_part) + len(path_part) > max_label_length:
-                    # Calculate how much of the path can fit after the domain (minus '...')
                     allowed_path_len = max_label_length - len(domain_part) - 3 # -3 for "..."
                     if allowed_path_len > 0 and path_part:
                         label = domain_part + path_part[:allowed_path_len] + "..."
                     elif len(domain_part) > max_label_length - 3: # If domain itself is too long
                         label = domain_part[:max_label_length - 3] + "..."
-                    else: # Fallback if domain is too long and no path, or path is too short
-                        label = domain_part # Just show domain if nothing else fits well
+                    else:
+                        label = domain_part
                 else:
-                    label = label_candidate # Should not be reached if initial check was correct
+                    label = label_candidate
             else:
-                label = label_candidate # Label fits within max_label_length
+                label = label_candidate
 
             node_labels[node] = label
 
         # Adjust font size based on the number of nodes to avoid overlap
-        # Adjusted font_size calculation for better scaling and smaller text
-        font_size = max(2, min(6, 400 // (len(G.nodes()) + len(initial_urls)))) if len(G.nodes()) > 0 else 8 # Modified this line
+        font_size = max(2, min(6, 400 // (len(G.nodes()) + len(initial_urls_raw)))) if len(G.nodes()) > 0 else 8
 
         nx.draw_networkx_labels(G, pos, labels=node_labels, font_size=font_size, font_color='black', bbox=dict(facecolor='white', edgecolor='none', boxstyle='round,pad=0.2'))
 
@@ -728,7 +734,7 @@ def main():
         plt.savefig('website_link_tree.png') # Save the plot
         plt.show()
         plt.close() # Close the plot to free up resources
-        log_message('INFO', "Visual link tree saved as 'website_link_tree.png'")
+        log_message('INFO', "Visual link tree saved as 'website_link_tree.png'", debug_only=True)
 
 
 if __name__ == "__main__":
