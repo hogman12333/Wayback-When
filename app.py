@@ -1,11 +1,3 @@
-# Install required Python packages
-!pip install --upgrade requests beautifulsoup4 waybackpy selenium webdriver-manager selenium-stealth
-
-# Install google-chrome-stable for better compatibility with ChromeDriver
-!wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | apt-key add -
-!echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" | tee /etc/apt/sources.list.d/google-chrome.list
-!apt-get update && apt-get install -y google-chrome-stable
-
 import requests
 from bs4 import BeautifulSoup, XMLParsedAsHTMLWarning
 from urllib.parse import urljoin, urlparse, parse_qs, urlencode, urlunparse # Added urlunparse
@@ -577,7 +569,7 @@ def main():
         for future in concurrent.futures.as_completed(crawling_futures):
             try:
                 discovered_links_for_url, _ = future.result() # Unpack both returned values, but only use the first
-                all_discovered_links.update(discovered_links_for_for_url)
+                all_discovered_links.update(discovered_links_for_url)
             except Exception as e:
                 log_message('ERROR', f"Error during crawling task: {e}")
 
