@@ -17,6 +17,9 @@ Archives smartly: Checks if a page was saved recently to avoid wasting time on r
 - add this to settings so it can be chosen by the end user
 - add uplaoding and downloading concurrently to maximise efficiency
 
+## Add user set cooldown when searching
+-in order to prevent IP blocks and to improve stealth
+
 ## Cleaner code
 -See if separating code from main.py is feasable
 ## Contributing
