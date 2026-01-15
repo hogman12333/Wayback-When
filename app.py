@@ -569,7 +569,7 @@ def main():
         for future in concurrent.futures.as_completed(crawling_futures):
             try:
                 discovered_links_for_url, _ = future.result() # Unpack both returned values, but only use the first
-                all_discovered_links.update(discovered_links_for_for_url)
+                all_discovered_links.update(discovered_links_for_url)
             except Exception as e:
                 log_message('ERROR', f"Error during crawling task: {e}")
 
