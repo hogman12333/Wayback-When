@@ -133,6 +133,15 @@ def get_driver():
     # Explicitly set the binary location for google-chrome-stable
     options.binary_location = '/usr/bin/google-chrome'
 
+    # Configure Chrome to not download files automatically
+    prefs = {
+        "download.prompt_for_download": False,
+        "download.directory_upgrade": True,
+        "safebrowsing.enabled": True,
+        "download.default_directory": "/dev/null" # Set a dummy directory, downloads will be suppressed
+    }
+    options.add_experimental_option("prefs", prefs)
+
     # Initialize ChromeDriver using webdriver_manager to handle downloads and setup
     service = ChromeService(executable_path=ChromeDriverManager().install())
     driver = webdriver.Chrome(service=service, options=options)
@@ -211,6 +220,21 @@ def get_root_domain(netloc):
     elif len(parts) > 2: # For sub.example.com, take the last two parts assuming a TLD like .com, .org
         return ".".join(parts[-2:])
     return netloc # For example.com
+
+def is_irrelevant_link(url):
+    """Checks if a URL should be considered irrelevant for crawling based on extensions or path segments."""
+    parsed_url = urlparse(url)
+    path = parsed_url.path.lower()
+
+    # Check for irrelevant file extensions
+    if path.endswith(IRRELEVANT_EXTENSIONS):
+        return True
+
+    # Check for irrelevant path segments
+    for segment in IRRELEVANT_PATH_SEGMENTS:
+        if segment in path:
+            return True
+    return False
 
 def get_internal_links(base_url, driver): # Modified to accept a driver object
     """Scrapes a given URL to find all internal links and returns them as a set.
@@ -363,7 +387,7 @@ def should_archive(url, global_archive_action):
             else:
                 log_message('ERROR', f"Failed to check archive for {url} after {retries} attempts: {e}. Defaulting to archive.")
                 return True, wayback # Default to archive if all retries fail
-    return False, wb_obj # Should not be reached if retries are handled correctly or success occurs
+    return False, wayback # Should not be reached if retries are handled correctly or success occurs
 
 # A lock to ensure only one thread modifies `last_archive_time` at a time
 archive_lock = threading.Lock()
@@ -438,15 +462,30 @@ def crawl_website(base_url, archiver_executor, archiving_futures, global_archive
     Uses parallel processing for efficient scraping.
     """
     # Initialize a deque (double-ended queue) for BFS, starting with the base_url
-    queue = deque([base_url])
+    queue = deque()
     # Keep track of visited URLs to avoid redundant processing and infinite loops
-    visited_urls = {base_url}
+    visited_urls = set()
     # Stores all unique internal links discovered during the crawl
-    all_unique_internal_links = {base_url}
+    all_unique_internal_links = set()
 
-    # Submit the base_url for archiving if an archiver_executor is provided
-    if archiver_executor:
-        archiving_futures.append(archiver_executor.submit(process_link_for_archiving, base_url, global_archive_action))
+    # Check if the base_url itself is an irrelevant link (e.g., a direct download file)
+    if is_irrelevant_link(base_url):
+        log_message('SKIPPED CRAWL', f"Initial URL {base_url} is an irrelevant link. Not crawling, but will attempt to archive.")
+        all_unique_internal_links.add(base_url)
+        visited_urls.add(base_url)
+        if archiver_executor:
+            log_message('DEBUG', f"Submitting initial irrelevant URL for archiving: {base_url}", debug_only=True)
+            archiving_futures.append(archiver_executor.submit(process_link_for_archiving, base_url, global_archive_action))
+        return all_unique_internal_links, link_relationships
+    else:
+        # If not an irrelevant link, proceed with normal crawling process
+        queue.append(base_url)
+        visited_urls.add(base_url)
+        all_unique_internal_links.add(base_url)
+        # Submit the base_url for archiving if an archiver_executor is provided
+        if archiver_executor:
+            log_message('DEBUG', f"Submitting base URL for archiving: {base_url}", debug_only=True)
+            archiving_futures.append(archiver_executor.submit(process_link_for_archiving, base_url, global_archive_action))
 
     try:
         # Determine max_workers based on SETTINGS
@@ -486,9 +525,13 @@ def crawl_website(base_url, archiver_executor, archiving_futures, global_archive
                             # Only add and potentially archive if the link is truly new and hasn't been visited
                             if link not in visited_urls:
                                 all_unique_internal_links.add(link) # Add discovered link to the overall set
-                                log_message('DISCOVERED', link) # This line will now always print
                                 visited_urls.add(link)
-                                queue.append(link)
+
+                                if not is_irrelevant_link(link):
+                                    queue.append(link) # Only queue for crawling if it's not an irrelevant link
+                                    log_message('DISCOVERED', link) # Log if it's actually going to be crawled
+                                else:
+                                    log_message('SKIPPED CRAWL', f"Skipping crawl for {link} due to irrelevant extension/path.")
 
                                 # Conditionally capture parent-child relationship
                                 if SETTINGS['enable_visual_tree_generation']:
@@ -496,6 +539,7 @@ def crawl_website(base_url, archiver_executor, archiving_futures, global_archive
 
                                 # Submit new link for archiving if archiver_executor is provided
                                 if archiver_executor:
+                                    log_message('DEBUG', f"Submitting link for archiving: {link}", debug_only=True)
                                     archiving_futures.append(archiver_executor.submit(process_link_for_archiving, link, global_archive_action))
                     except CaptchaDetectedError as e:
                         # This exception will only be caught if the user explicitly chose 'skip' in the CAPTCHA prompt
@@ -510,7 +554,7 @@ def crawl_website(base_url, archiver_executor, archiving_futures, global_archive
         return set(), [] # Explicitly return an empty set and empty list on error
     finally:
         # Note: WebDriver instances are no longer explicitly quit after each URL.
-        # They will persist for the lifetime of their respective worker threads within the ThreadPoolExecutor.p
+        # They will persist for the lifetime of their respective worker threads within the ThreadPoolExecutor.
         # Proper cleanup (driver.quit()) should ideally be handled when the ThreadPoolExecutor itself shuts down,
         # which might require more advanced patterns for explicit resource management with concurrent.futures.
         pass
@@ -577,7 +621,7 @@ def main():
         for future in concurrent.futures.as_completed(crawling_futures):
             try:
                 discovered_links_for_url, _ = future.result() # Unpack both returned values, but only use the first
-                all_discovered_links.update(discovered_links_for_for_url)
+                all_discovered_links.update(discovered_links_for_url)
             except Exception as e:
                 log_message('ERROR', f"Error during crawling task: {e}")
 
