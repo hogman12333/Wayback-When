@@ -6,3 +6,4 @@ webdriver-manager
 selenium-stealth
 networkx
 matplotlib
+ipython
