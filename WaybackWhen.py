@@ -61,7 +61,7 @@ SETTINGS = {
     "max_crawler_workers": 0,          # 0 = Unlimited
     "retries": 5,                      # retries for crawling/archiving
     "default_archiving_action": "N",   # 'n' normal, 'a' archive all, 's' skip all
-    "debug_mode": False,
+    "debug_mode": True,
     "max_archiver_workers": 0,         # 0 = unlimited
     "enable_visual_tree_generation": False,
     "min_link_search_delay": 0.0,
@@ -575,7 +575,7 @@ class Archiver:
                 "WARNING",
                 f"Invalid default_archiving_action '{self.global_archive_action}' in SETTINGS. "
                 f"Falling back to 'n'.",
-                debug_only=True,
+                debug_only=True
             )
             self.global_archive_action = "n"
 
@@ -612,7 +612,7 @@ class Archiver:
                         f"Needs Archive: {url} "
                         f"(Last archived {time_diff.total_seconds() // 3600:.1f} hours ago, "
                         f"> {SETTINGS['archiving_cooldown'] * 24} hours)",
-                        debug_only=True,
+                        debug_only=True
                     )
                     return True, wayback
 
@@ -620,7 +620,7 @@ class Archiver:
                 log_message(
                     "INFO",
                     f"No existing archive found for {url}. Archiving.",
-                    debug_only=True,
+                    debug_only=True
                 )
                 return True, wayback
             except Exception as e:
@@ -630,7 +630,7 @@ class Archiver:
                         "WARNING",
                         f"Error checking archive for {url}: {e}. "
                         f"Retrying ({retries - attempt} attempts left).",
-                        debug_only=True,
+                        debug_only=True
                     )
                     time.sleep(5)
                 else:
@@ -638,7 +638,7 @@ class Archiver:
                         "ERROR",
                         f"Failed to check archive for {url} after {retries} attempts: {e}. "
                         f"Defaulting to archive.",
-                        debug_only=True,
+                        debug_only=True
                     )
                     return True, wayback
 
