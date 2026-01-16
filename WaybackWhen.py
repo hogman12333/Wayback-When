@@ -69,6 +69,8 @@ SETTINGS = {
     "safety_switch": False,             # Forces the script to slowdown to avoid detection
     "proxies": [],                     # e.g. ['http://user:pass@ip:port']
     "max_archiving_queue_size": 0,     # 0 = Unlimited
+    "allow_external_links": True,     # New setting: True to allow crawling external links
+    "archive_timeout_seconds": 300,    # 5 minutes for archiving a single link
 }
 
 # Thread-local storage (if needed later)
@@ -80,6 +82,7 @@ captcha_prompt_lock = threading.Lock()
 # Archive rate limiting
 archive_lock = threading.Lock()
 last_archive_time = 0.0  # global timestamp of last archive request
+rate_limit_active_until_time = 0.0 # New global timestamp for reactive rate limiting
 
 # Minimum delay between archive requests
 MIN_ARCHIVE_DELAY_SECONDS = 60 / SETTINGS["urls_per_minute_limit"]
@@ -378,7 +381,7 @@ class Crawler:
         parsed_base_url = urlparse(base_url)
         base_netloc = parsed_base_url.netloc
         base_root_domain = get_root_domain(base_netloc)
-        normalized_base_url_for_comparison = normalize_url(base_url)
+        # Removed: normalized_base_url_for_comparison = normalize_url(base_url)
 
         log_message(
             "DEBUG",
@@ -454,15 +457,15 @@ class Crawler:
 
                     clean_url = normalize_url(full_url)
 
+                    # Modified condition: Removed clean_url.startswith(normalized_base_url_for_comparison)
                     if (
-                        link_root_domain == base_root_domain
-                        and clean_url.startswith(normalized_base_url_for_comparison)
+                        (link_root_domain == base_root_domain or SETTINGS["allow_external_links"])
                         and not is_irrelevant_link(clean_url)
                     ):
                         log_message(
                             "DEBUG",
                             f"Adding internal link: {clean_url} "
-                            f"(Root domain: {link_root_domain}, is sub-path of base_url)",
+                            f"(Root domain: {link_root_domain})",
                             debug_only=True,
                         )
                         links.add(clean_url)
@@ -471,9 +474,9 @@ class Crawler:
                     else:
                         log_message(
                             "DEBUG",
-                            f"Skipping external/parent/irrelevant link: {full_url} "
+                            f"Skipping external/irrelevant link: {full_url} "
                             f"(Link root domain: {link_root_domain} != Base root domain: {base_root_domain} "
-                            f"OR not sub-path of base_url)",
+                            f"OR irrelevant link)", # Adjusted log message
                             debug_only=True,
                         )
 
@@ -646,7 +649,7 @@ class Archiver:
 
     def process_link_for_archiving(self, link: str) -> str:
         """Check if link needs archiving and attempt to save it to Wayback."""
-        global last_archive_time
+        global last_archive_time, rate_limit_active_until_time
 
         needs_save, wb_obj = self.should_archive(link,)
 
@@ -657,6 +660,20 @@ class Archiver:
         while retries > 0:
             with archive_lock:
                 now = time.time()
+
+                # Check for global rate limit imposed by another thread
+                if now < rate_limit_active_until_time:
+                    sleep_duration = rate_limit_active_until_time - now
+                    log_message(
+                        "RATE LIMIT",
+                        f"Global rate limit active. Sleeping for {sleep_duration:.2f} seconds before archiving {link}",
+                        debug_only=True,
+                    )
+                    time.sleep(sleep_duration)
+
+                now = time.time() # Re-evaluate now after potential global sleep
+
+                # Check for proactive individual archive delay
                 elapsed = now - last_archive_time
                 if elapsed < MIN_ARCHIVE_DELAY_SECONDS:
                     sleep_duration = MIN_ARCHIVE_DELAY_SECONDS - elapsed
@@ -666,34 +683,81 @@ class Archiver:
                         debug_only=True,
                     )
                     time.sleep(sleep_duration)
-                last_archive_time = time.time()
 
-            try:
-                log_message("INFO", f"Archiving: {link}...")
-                wb_obj.save()
-                return f"[ARCHIVED] {link}"
-            except Exception as e:
-                error_message = str(e)
-                rate_limit_keyword = (
-                    "Save request refused by the server. Save Page Now limits saving 15 URLs per minutes."
+                last_archive_time = time.time() # Update last_archive_time right before attempt
+
+            # --- Start of timeout logic for wb_obj.save() ---
+            archive_result = [] # A list to hold the result or exception from the archiving thread
+
+            def _save_target():
+                try:
+                    wb_obj.save()
+                    archive_result.append(True) # Indicate success
+                except Exception as e:
+                    archive_result.append(e) # Store exception
+
+            archive_thread = threading.Thread(target=_save_target)
+            archive_thread.start()
+            archive_thread.join(timeout=SETTINGS['archive_timeout_seconds'])
+
+            if archive_thread.is_alive():
+                log_message(
+                    "WARNING",
+                    f"Archiving {link} timed out after {SETTINGS['archive_timeout_seconds']} seconds. Skipping this attempt.",
+                    debug_only=True
                 )
+                # The thread is still running, but we've timed out. We will consider this attempt failed.
+                # The thread will eventually finish, but we won't wait for it.
                 retries -= 1
-                if rate_limit_keyword in error_message and retries > 0:
+                if retries > 0:
                     log_message(
-                        "WARNING",
-                        f"Wayback Machine rate limit hit for {link}. "
-                        f"Pausing for 1 minute before retrying ({retries} attempts left).",
-                        debug_only=True,
+                        "INFO",
+                        f"Retrying archiving for {link} after timeout ({retries} attempts left)...",
+                        debug_only=True
                     )
-                    time.sleep(60)
-                elif retries > 0:
-                    log_message(
-                        "WARNING",
-                        f"Could not save {link}: {e}. Retrying ({retries} attempts left)...",
-                    )
-                    time.sleep(2)
+                    time.sleep(2) # Short delay before next retry
                 else:
-                    return f"[FAILED] Failed to archive {link} after multiple attempts: {e}"
+                    return f"[FAILED - TIMEOUT] Failed to archive {link} after {SETTINGS['retries']} attempts due to timeout."
+            else:
+                # The thread completed, check its result
+                if archive_result and archive_result[0] is True:
+                    return f"[ARCHIVED] {link}"
+                elif archive_result and isinstance(archive_result[0], Exception):
+                    e = archive_result[0] # Get the exception
+                    error_message = str(e)
+                    rate_limit_keyword = (
+                        "Save request refused by the server. Save Page Now limits saving 15 URLs per minutes."
+                    )
+                    retries -= 1
+                    if rate_limit_keyword in error_message and retries > 0:
+                        with archive_lock: # Protect update to global rate_limit_active_until_time
+                            log_message(
+                                "WARNING",
+                                f"Wayback Machine rate limit hit for {link}. "
+                                f"Pausing for 1 minute and activating global cooldown ({retries} attempts left).",
+                                debug_only=True,
+                            )
+                            # Set global cooldown for 60 seconds
+                            rate_limit_active_until_time = time.time() + 60
+                        # This sleep is for the *current* thread that hit the rate limit
+                        time.sleep(60)
+                    elif retries > 0:
+                        log_message(
+                            "WARNING",
+                            f"Could not save {link}: {e}. Retrying ({retries} attempts left)...",
+                        )
+                        time.sleep(2)
+                    else:
+                        return f"[FAILED] Failed to archive {link} after multiple attempts: {e}"
+                else:
+                    # Should not happen if _save_target always appends something
+                    retries -= 1
+                    log_message(
+                        "ERROR",
+                        f"Archiving thread for {link} finished unexpectedly without result. Retrying ({retries} attempts left)...",
+                        debug_only=True
+                    )
+                    time.sleep(2) # Short delay before next retry
 
         return f"[FAILED] Failed to archive {link} after multiple attempts."
 
@@ -851,7 +915,8 @@ class CrawlCoordinator:
 
                 # Process crawl results
                 for future in concurrent.futures.as_completed(crawl_futures):
-                    url, root_domain = crawl_futures[future]
+                    url = crawl_futures[future][0] # Access the url from the tuple
+                    root_domain = crawl_futures[future][1] # Access the root_domain from the tuple
                     try:
                         links_on_page, relationships_on_page = future.result()
                     except ConnectionRefusedForCrawlerError:
