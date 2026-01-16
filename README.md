@@ -15,7 +15,7 @@ Archives smartly: Checks if a page was saved recently to avoid wasting time on r
 ## Further Optimisation
 - Optimise and speed up Scraping and archiving, while keeping Memory And CPU usage as low as possible
 
-## Add Download Support
+## Add Download Support-not gonna release with v1.1, possibly might impliment it with an eventual GUI release
 - Add support for downloading all previous versions of a website
 - Idd this to settings so it can be chosen by the end user
 - Idd uploading and downloading concurrently to maximise efficiency
