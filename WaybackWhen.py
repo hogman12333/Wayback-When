@@ -58,17 +58,17 @@ class ConnectionRefusedForCrawlerError(Exception):
 SETTINGS = {
     "archiving_cooldown": 28,          # days
     "urls_per_minute_limit": 15,       # Wayback rate limit
-    "max_crawler_workers": 0,          # 0 = unlimited
+    "max_crawler_workers": 0,          # 0 = Unlimited
     "retries": 5,                      # retries for crawling/archiving
     "default_archiving_action": "N",   # 'n' normal, 'a' archive all, 's' skip all
-    "debug_mode": True,
+    "debug_mode": False,
     "max_archiver_workers": 0,         # 0 = unlimited
     "enable_visual_tree_generation": False,
     "min_link_search_delay": 0.0,
     "max_link_search_delay": 0.0,
-    "sequential_crawling_mode": True,
+    "safety_switch": False,             # Forces the script to slowdown to avoid detection
     "proxies": [],                     # e.g. ['http://user:pass@ip:port']
-    "max_archiving_queue_size": 0,
+    "max_archiving_queue_size": 0,     # 0 = Unlimited
 }
 
 # Thread-local storage (if needed later)
@@ -764,7 +764,7 @@ class CrawlCoordinator:
     def _resolve_worker_counts(self) -> None:
         """Resolve max workers for crawler and archiver based on SETTINGS."""
         max_crawler_workers_setting = SETTINGS["max_crawler_workers"]
-        if SETTINGS.get("sequential_crawling_mode", False):
+        if SETTINGS.get("safety_switch", False):
             self.max_crawler_workers = 1
             log_message(
                 "INFO",
