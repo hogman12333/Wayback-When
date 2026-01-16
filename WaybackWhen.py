@@ -69,7 +69,7 @@ SETTINGS = {
     "safety_switch": False,             # Forces the script to slowdown to avoid detection
     "proxies": [],                     # e.g. ['http://user:pass@ip:port']
     "max_archiving_queue_size": 0,     # 0 = Unlimited
-    "allow_external_links": True,     # New setting: True to allow crawling external links
+    "allow_external_links": False,     # New setting: True to allow crawling external links
     "archive_timeout_seconds": 300,    # 5 minutes for archiving a single link
 }
 
@@ -162,7 +162,8 @@ IRRELEVANT_EXTENSIONS = (
     ".pl", ".ply", ".png", ".ppt", ".pptx", ".prn", ".ps", ".py", ".qbb", ".qbw",
     ".qfx", ".rar", ".rb", ".rm", ".rmvb", ".rom", ".rpm", ".rs", ".rtf", ".r",
     ".rfa", ".rvt", ".s", ".sav", ".sh", ".sit", ".sitx", ".skp", ".so",
-    ".sqlite", ".sqlite3", ".stl", ".step", ".stp", ".sub", ".swift", ".sys",
+    ".sqlite", ".sqlite3", 
+    ".stl", ".step", ".stp", ".sub", ".swift", ".sys",
     ".tar", ".temp", ".tif", ".tiff", ".tmp", ".toml", ".tsv", ".ttf", ".uue",
     ".vhd", ".vhdx", ".vmdk", ".vtt", ".wav", ".wbmp", ".webm", ".webp", ".wma",
     ".woff", ".woff2", ".wps", ".wmv", ".xcf", ".xls", ".xlsx", ".xml", ".xz",
@@ -220,39 +221,39 @@ def generate_random_user_agent() -> str:
 
 
 def normalize_url(url: str) -> str:
-    """Normalize URL for consistent comparison and deduplication."""
-    parsed_url = urlparse(url)
+    parsed = urlparse(url)
 
-    scheme = parsed_url.scheme.lower()
-    netloc = parsed_url.netloc.lower()
-    path = parsed_url.path
+    scheme = parsed.scheme.lower()
+    netloc = parsed.netloc.lower()
 
-    if path.endswith("/") and path != "/":
-        path = path.rstrip("/")
+    # Normalize path
+    path = parsed.path or "/"
+    path = path.replace("//", "/")
+    path = path.rstrip("/") if path not in ("/", "") else "/"
+    path = path.lower()
 
-    query_params = parse_qs(parsed_url.query)
+    # Remove index pages
+    for index_page in ["index.html", "index.htm", "default.html", "default.htm"]:
+        if path.endswith(index_page):
+            path = path[: -len(index_page)]
+            if not path:
+                path = "/"
 
-    tracking_params = [
-        "utm_source",
-        "utm_medium",
-        "utm_campaign",
-        "utm_term",
-        "utm_content",
-        "gclid",
-        "fbclid",
-        "ref",
-        "src",
-        "cid",
-        "referrer",
-    ]
-    for param in tracking_params:
-        query_params.pop(param, None)
+    # Remove fragments
+    fragment = ""
 
-    sorted_query_params = OrderedDict(sorted(query_params.items()))
-    query = urlencode(sorted_query_params, doseq=True)
+    # Clean query params
+    query_params = parse_qs(parsed.query)
+    tracking_params = {
+        "utm_source", "utm_medium", "utm_campaign", "utm_term",
+        "utm_content", "gclid", "fbclid", "ref", "src", "cid", "referrer"
+    }
+    for p in tracking_params:
+        query_params.pop(p, None)
 
-    return urlunparse((scheme, netloc, path, parsed_url.params, query, ""))
+    query = urlencode(sorted(query_params.items()), doseq=True)
 
+    return urlunparse((scheme, netloc, path, parsed.params, query, fragment))
 
 def get_root_domain(netloc: str) -> str:
     """Extract root domain from netloc (simple heuristic)."""
@@ -412,8 +413,14 @@ class Crawler:
                 captcha_indicators = [
                     (By.ID, "g-recaptcha"),
                     (By.CLASS_NAME, "g-recaptcha"),
-                    (By.XPATH, "//iframe[contains(@src, 'google.com/recaptcha')]"),
+                    (By.XPATH, "//iframe[contains(@src, 'recaptcha')]"),
+                    (By.XPATH, "//*[contains(@class, 'h-captcha')]"),
+                    (By.XPATH, "//iframe[contains(@src, 'hcaptcha')]"),
+                    (By.XPATH, "//*[contains(text(), 'verify you are human')]"),
+                    (By.XPATH, "//div[contains(@class, 'cf-challenge')]"),
+                    (By.XPATH, "//title[contains(text(), 'Attention Required')]"),
                 ]
+
                 captcha_detected = False
                 for by_type, value in captcha_indicators:
                     if driver.find_elements(by_type, value):
@@ -541,25 +548,59 @@ class Crawler:
         )
         return set(), []
 
+    def _try_requests_first(self, url):
+        """Attempt to fetch page with requests before using Selenium."""
+        try:
+            session = get_requests_session()
+            headers = {"User-Agent": generate_random_user_agent()}
+            resp = session.get(url, headers=headers, timeout=15)
+
+            if resp.status_code >= 400:
+                return None
+
+            soup = BeautifulSoup(resp.text, "html.parser")
+            anchors = soup.find_all("a")
+
+            links = set()
+            relationships = []
+
+            parsed_base = urlparse(url)
+            base_root = get_root_domain(parsed_base.netloc)
+
+            for a in anchors:
+                href = a.get("href")
+                if not href:
+                    continue
+
+                full = urljoin(url, href)
+                clean = normalize_url(full)
+                parsed = urlparse(clean)
+                root = get_root_domain(parsed.netloc)
+
+                if (root == base_root or SETTINGS["allow_external_links"]) and not is_irrelevant_link(clean):
+                    links.add(clean)
+                    if SETTINGS["enable_visual_tree_generation"]:
+                        relationships.append((url, clean))
+
+            return links, relationships
+
+        except Exception:
+            return None
+
     def crawl_single_page(self, url_to_crawl: str):
-        """Public wrapper to crawl a single page with its own WebDriver."""
+        """Try fast requests-based crawl first, then fall back to Selenium."""
+        fast_result = self._try_requests_first(url_to_crawl)
+        if fast_result:
+            return fast_result
+
         driver = self.webdriver_manager.create_driver()
         try:
-            links_on_page, relationships_on_page = self._get_links_from_page_content(
-                url_to_crawl, driver
-            )
+            return self._get_links_from_page_content(url_to_crawl, driver)
         except ConnectionRefusedForCrawlerError as e:
-            log_message(
-                "INFO",
-                f"Skipping crawling for mother URL branch starting from {e.args[0]} "
-                f"due to connection refused error.",
-                debug_only=True,
-            )
+            log_message("INFO", f"Skipping branch due to connection refused: {e.args[0]}")
             return set(), []
         finally:
             self.webdriver_manager.destroy_driver(driver)
-
-        return links_on_page, relationships_on_page
 
 
 # =========================
