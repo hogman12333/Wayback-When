@@ -10,7 +10,7 @@ Archives smartly: Checks if a page was saved recently to avoid wasting time on r
 # New Additions and Enhancements in V1.1
 
 ## ~~Max File size~~
--  ~~Impliment a user chosen max file size, so when uploading Websites, it does not download too many files~~
+-  Impliment a user chosen max file size, so when uploading Websites, it does not download too many files
 
 ## Further Optimisation
 - Optimise and speed up Scraping and archiving, while keeping Memory And CPU usage as low as possible
@@ -20,10 +20,10 @@ Archives smartly: Checks if a page was saved recently to avoid wasting time on r
 - Idd this to settings so it can be chosen by the end user
 - Idd uploading and downloading concurrently to maximise efficiency
 
-## Add user set cooldown when searching
+## ~~Add user set cooldown when searching~~
 - In order to prevent IP blocks and to improve stealth
 
-## Cleaner code
+## ~~Cleaner code~~
 - See if separating code from main.py is feasable
 ## Contributing
 
