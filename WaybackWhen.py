@@ -20,6 +20,11 @@ import threading
 import queue
 import warnings
 import random
+import logging
+from pathlib import Path
+import traceback
+import atexit
+
 
 # Selenium imports - these are used for browser automation to scrape dynamic content
 from selenium import webdriver
@@ -41,21 +46,6 @@ from IPython.display import clear_output
 warnings.filterwarnings("ignore", category=XMLParsedAsHTMLWarning)
 
 
-# =========================
-# Custom Exceptions
-# =========================
-
-class CaptchaDetectedError(Exception):
-    """Raised when a CAPTCHA is detected on a page."""
-    pass
-
-
-class ConnectionRefusedForCrawlerError(Exception):
-    """Raised when a connection is refused for a given URL branch."
-    ""Raised specifically when a WebDriver encounters a 'Connection Refused' error,
-    indicating that further crawling on that domain/branch might be futile or problematic.
-    """
-    pass
 
 
 # =========================
@@ -69,16 +59,20 @@ SETTINGS = {
     "max_crawler_workers": 10,         # Maximum number of concurrent threads/processes for crawling. 0 means unlimited (but capped by system resources).
     "retries": 5,                      # Number of times to retry a failed HTTP request or WebDriver operation.
     "default_archiving_action": "N",   # Default action for archiving: 'n' (normal - check cooldown), 'a' (archive all), 's' (skip all).
-    "debug_mode": True,
+    "debug_mode": False,               # If True, enables verbose logging for debugging purposes.
     "max_archiver_workers": 0,         # Maximum number of concurrent threads/processes for archiving. 0 means unlimited.
     "enable_visual_tree_generation": False, # Whether to generate a visual graph of crawled links using NetworkX and Matplotlib.
     "min_link_search_delay": 0.0,      # Minimum random delay (seconds) between link extraction on a page to simulate human behavior.
-    "max_link_search_delay": 0.0,      # Maximum random delay (seconds) between link extraction on a page.
+    "max_link_search_delay": 6.0,      # Maximum random delay (seconds) between link extraction on a page.
     "safety_switch": False,            # If True, forces the crawler to run sequentially (1 worker) to avoid detection or aggressive crawling.
     "proxies": [],                     # List of proxy URLs (e.g., ['http://user:pass@ip:port']). If provided, random proxies will be used.
     "max_archiving_queue_size": 0,     # Maximum size of the queue for archiving tasks. 0 means unlimited.
-    "allow_external_links": False,     # If True, the crawler will follow links to external domains.
-    "archive_timeout_seconds": 300,    # Timeout in seconds for a single archiving request to the Wayback Machine.
+    "allow_external_links": True,     # If True, the crawler will follow links to external domains.
+    "archive_timeout_seconds": 120,    # Timeout in seconds for a single archiving request to the Wayback Machine.
+    "enable_file_logging": True,   # Set to False to disable log files
+    "enable_console_logging": True, # Set to False to silence terminal
+    "enable_crash_summary": True,   # Summary of any errors encountered during execution will be displayed at the end.
+
 }
 
 # Thread-local storage (if needed later) - useful for storing data unique to each thread
@@ -95,6 +89,21 @@ rate_limit_active_until_time = 0.0 # Global timestamp until which a reactive rat
 # Minimum delay between archive requests, calculated from urls_per_minute_limit
 MIN_ARCHIVE_DELAY_SECONDS = 60 / SETTINGS["urls_per_minute_limit"]
 
+# =========================
+# Custom Exceptions
+# =========================
+
+class CaptchaDetectedError(Exception):
+    """Raised when a CAPTCHA is detected on a page."""
+    pass
+
+
+class ConnectionRefusedForCrawlerError(Exception):
+    """Raised when a connection is refused for a given URL branch."
+    ""Raised specifically when a WebDriver encounters a 'Connection Refused' error,
+    indicating that further crawling on that domain/branch might be futile or problematic.
+    """
+    pass
 
 # =========================
 # User-Agent / Stealth Pools
@@ -199,20 +208,93 @@ IRRELEVANT_PATH_SEGMENTS = (
     "/img/", # Common images folder
 )
 
+# =========================
+# Logging Setup
+# =========================
+
+LOG_DIR = Path("logs")
+LOG_DIR.mkdir(exist_ok=True)
+
+LOG_FILE = LOG_DIR / f"crawler_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
+
+LOG_HANDLERS = []
+
+if SETTINGS.get("enable_file_logging", False):
+    LOG_DIR = Path("logs")
+    LOG_DIR.mkdir(exist_ok=True)
+
+    LOG_FILE = LOG_DIR / f"crawler_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
+    LOG_HANDLERS.append(logging.FileHandler(LOG_FILE, encoding="utf-8"))
+
+if SETTINGS.get("enable_console_logging", True):
+    LOG_HANDLERS.append(logging.StreamHandler(sys.stdout))
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="[%(asctime)s][%(levelname)s] %(message)s",
+    handlers=LOG_HANDLERS if LOG_HANDLERS else None,
+)
+
+logger = logging.getLogger("waybackwhen")
+
+# Silence urllib3 retry spam
+logging.getLogger("urllib3").setLevel(logging.ERROR)
+
+# =========================
+# Crash Summary Support
+# =========================
+
+CRASH_SUMMARY_FILE = "CRASH_SUMMARY.txt"
+_last_exception = None
+
+def write_crash_summary(exc_type, exc_value, exc_tb):
+    if not SETTINGS.get("enable_crash_summary", False):
+        return
+
+    try:
+        with open(CRASH_SUMMARY_FILE, "w", encoding="utf-8") as f:
+            f.write("Wayback-When Crash Summary\n")
+            f.write("=" * 26 + "\n")
+            f.write(f"Timestamp: {datetime.now()}\n")
+            f.write(f"Exception Type: {exc_type.__name__}\n")
+            f.write(f"Exception Message: {exc_value}\n\n")
+            f.write("Traceback:\n")
+            f.write("-" * 50 + "\n")
+            traceback.print_tb(exc_tb, file=f)
+            f.write("-" * 50 + "\n")
+    except Exception:
+        pass  # Never let logging crash the crawler
+
+def global_exception_hook(exc_type, exc_value, exc_tb):
+    write_crash_summary(exc_type, exc_value, exc_tb)
+    sys.__excepthook__(exc_type, exc_value, exc_tb)
+
+sys.excepthook = global_exception_hook
+
 
 # =========================
 # Logging
 # =========================
 
 def log_message(level: str, message: str, debug_only: bool = False) -> None:
-    """Standardized logging function."
-    Prints messages to the console with a timestamp and log level.
-    Can be configured to only print in debug_mode.
-    """
     if debug_only and not SETTINGS["debug_mode"]:
         return
-    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    print(f"[{timestamp}][{level.upper()}] {message}")
+
+    level = level.upper()
+
+    if level == "DEBUG":
+        logger.debug(message)
+    elif level in ("WARN", "WARNING"):
+        logger.warning(message)
+    elif level == "ERROR":
+        logger.error(message)
+    elif level == "SKIPPED":
+        logger.info(f"[SKIPPED] {message}")
+    elif level == "RATE LIMIT":
+        logger.info(f"[RATE LIMIT] {message}")
+    else:
+        logger.info(message)
+
 
 
 # =========================
@@ -324,10 +406,12 @@ def is_irrelevant_link(url: str) -> bool:
 
 # Configure retry strategy for requests to handle transient network errors or server issues
 retry_strategy = Retry(
-    total=5, # Maximum number of retries
-    backoff_factor=1, # Delay factor for exponential backoff between retries
-    status_forcelist=[403, 404, 429, 500, 502, 503, 504], # HTTP status codes that should trigger a retry
-    allowed_methods=False, # Only retry GET requests by default
+    total=1,
+    connect=0,
+    read=1,
+    backoff_factor=2,
+    status_forcelist=[429, 500, 502, 503, 504],
+    allowed_methods=["GET", "HEAD"],
 )
 adapter = HTTPAdapter(max_retries=retry_strategy) # Create an HTTP adapter with the retry strategy
 
@@ -571,7 +655,7 @@ class Crawler:
                             f"CAPTCHA DETECTED for {base_url}. Waiting 5-10 seconds...",
                             debug_only=True,
                         )
-                        time.sleep(random.uniform(5, 10)) # Wait before attempting to proceed
+                        time.sleep(random.uniform(2, 4)) # Wait before attempting to proceed
                         log_message(
                             "INFO",
                             "Attempting to continue after automated wait...",
@@ -696,7 +780,7 @@ class Crawler:
         try:
             session = get_requests_session()
             headers = {"User-Agent": generate_random_user_agent()} # Use a random User-Agent
-            resp = session.get(url, headers=headers, timeout=15) # Fetch the page content
+            resp = session.get(url, headers=headers, timeout=(5, 15)) # Fetch the page content
 
             if resp.status_code >= 400:
                 return None # Return None if there's an HTTP error (client or server side)
@@ -740,14 +824,14 @@ class Crawler:
             return fast_result # If successful, return the result immediately
 
         # If fast crawl fails or is not suitable, use Selenium WebDriver
-        driver = self.webdriver_manager.create_driver() # Acquire a WebDriver instance
+        driver = self.driver_pool.acquire() # Acquire a WebDriver instance
         try:
             return self._get_links_from_page_content(url_to_crawl, driver) # Perform Selenium-based crawl
         except ConnectionRefusedForCrawlerError as e:
             log_message("INFO", f"Skipping branch due to connection refused: {e.args[0]}")
             return set(), [] # Return empty sets if connection is refused for the branch
         finally:
-            self.webdriver_manager.destroy_driver(driver) # Ensure the WebDriver is quit (or returned to pool)
+            self.driver_pool.release(driver) # Ensure the WebDriver is quit (or returned to pool)
 
 
 # =========================
@@ -1221,6 +1305,16 @@ def main():
     coordinator.add_initial_urls(initial_urls_raw) # Add user-provided URLs to start the process
     coordinator.run() # Start the crawling and archiving process
 
+def shutdown_handler():
+    if _last_exception:
+        exc_type, exc_value, exc_tb = _last_exception
+        write_crash_summary(exc_type, exc_value, exc_tb)
+
+atexit.register(shutdown_handler)
 
 if __name__ == "__main__":
-    main() # Execute the main function when the script is run
+    try:
+        main()
+    except Exception:
+        _last_exception = sys.exc_info()
+        raise
