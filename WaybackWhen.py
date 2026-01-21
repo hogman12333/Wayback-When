@@ -58,8 +58,8 @@ class ConnectionRefusedForCrawlerError(Exception):
 SETTINGS = {
     "archiving_cooldown": 28,          # days
     "urls_per_minute_limit": 15,       # Wayback rate limit
-    "max_crawler_workers": 0,          # 0 = Unlimited
-    "retries": 5,                      # retries for crawling/archiving
+    "max_crawler_workers": 10,          # 0 = Unlimited
+    "retries": 7,                      # retries for crawling/archiving
     "default_archiving_action": "N",   # 'n' normal, 'a' archive all, 's' skip all
     "debug_mode": True,
     "max_archiver_workers": 0,         # 0 = unlimited
@@ -70,7 +70,7 @@ SETTINGS = {
     "proxies": [],                     # e.g. ['http://user:pass@ip:port']
     "max_archiving_queue_size": 0,     # 0 = Unlimited
     "allow_external_links": False,     # New setting: True to allow crawling external links
-    "archive_timeout_seconds": 300,    # 5 minutes for archiving a single link
+    "archive_timeout_seconds": 600,    # seconds for archiving a single link
 }
 
 # Thread-local storage (if needed later)
@@ -329,7 +329,7 @@ class WebDriverManager:
         if SETTINGS["proxies"]:
             proxy = random.choice(SETTINGS["proxies"])
             options.add_argument(f"--proxy-server={proxy}")
-            log_message("DEBUG", f"Using proxy for Selenium: {proxy}", debug_only=True)
+            log_message("DEBUG", f"Using proxy for Selenium: {proxy}", debug_only=False)
 
         prefs = {
             "download.prompt_for_download": False,
@@ -432,7 +432,7 @@ class Crawler:
                         log_message(
                             "WARNING",
                             f"CAPTCHA DETECTED for {base_url}. Waiting 5-10 seconds...",
-                            debug_only=True,
+                            debug_only=False,
                         )
                         time.sleep(random.uniform(5, 10))
                         log_message(
@@ -472,8 +472,7 @@ class Crawler:
                         log_message(
                             "INFO",
                             f"Discovered internal link: {clean_url} "
-                            f"(Root domain: {link_root_domain})",
-                            debug_only=True,
+                            f"(Root domain: {link_root_domain})"
                         )
                         links.add(clean_url)
                         if SETTINGS["enable_visual_tree_generation"]:
@@ -483,7 +482,7 @@ class Crawler:
                             "DEBUG",
                             f"Skipping external/irrelevant link: {full_url} "
                             f"(Link root domain: {link_root_domain} != Base root domain: {base_root_domain} "
-                            f"OR irrelevant link)", # Adjusted log message
+                            f"OR irrelevant link)",
                             debug_only=True,
                         )
 
@@ -539,7 +538,7 @@ class Crawler:
                     debug_only=True,
                 )
                 attempt += 1
-                time.sleep(random.uniform(5, 15))
+                time.sleep(random.uniform(2, 10))
 
         log_message(
             "ERROR",
@@ -619,7 +618,7 @@ class Archiver:
                 "WARNING",
                 f"Invalid default_archiving_action '{self.global_archive_action}' in SETTINGS. "
                 f"Falling back to 'n'.",
-                debug_only=True
+                debug_only=False
             )
             self.global_archive_action = "n"
 
@@ -664,7 +663,7 @@ class Archiver:
                 log_message(
                     "INFO",
                     f"No existing archive found for {url}. Archiving.",
-                    debug_only=True
+                    debug_only=False
                 )
                 return True, wayback
             except Exception as e:
@@ -747,8 +746,6 @@ class Archiver:
                     f"Archiving {link} timed out after {SETTINGS['archive_timeout_seconds']} seconds. Skipping this attempt.",
                     debug_only=True
                 )
-                # The thread is still running, but we've timed out. We will consider this attempt failed.
-                # The thread will eventually finish, but we won't wait for it.
                 retries -= 1
                 if retries > 0:
                     log_message(
@@ -791,7 +788,6 @@ class Archiver:
                     else:
                         return f"[FAILED] Failed to archive {link} after multiple attempts: {e}"
                 else:
-                    # Should not happen if _save_target always appends something
                     retries -= 1
                     log_message(
                         "ERROR",
@@ -871,10 +867,12 @@ class CrawlCoordinator:
         max_crawler_workers_setting = SETTINGS["max_crawler_workers"]
         if SETTINGS.get("safety_switch", False):
             self.max_crawler_workers = 1
+            self.min_link_search_delay = 15.0
+            self.max_link_search_delay = 12.0
             log_message(
                 "INFO",
-                "Sequential crawling mode is enabled. Crawling with 1 worker.",
-                debug_only=True,
+                "Safety is enabled. Crawling with 1 worker and increasing cooldown.",
+                debug_only=False,
             )
         elif max_crawler_workers_setting == 0:
             self.max_crawler_workers = None
@@ -909,6 +907,7 @@ class CrawlCoordinator:
                 self.visited_urls.add(normalized_url)
                 self.crawling_queue.append((normalized_url, root_domain))
                 self.queue_for_archiving.append(normalized_url)
+                log_message("DEBUG", f"Queued {normalized_url} for crawling and archiving.", debug_only=True)
 
     def _submit_crawl_tasks(self, executor):
         """Submit crawl tasks while respecting queue and skipped domains."""
@@ -923,6 +922,7 @@ class CrawlCoordinator:
                     debug_only=True,
                 )
                 continue
+            log_message("DEBUG", f"Submitting crawl task for: {url}", debug_only=True)
             future = executor.submit(self.crawler.crawl_single_page, url)
             futures[future] = (url, root_domain)
         return futures
@@ -932,6 +932,7 @@ class CrawlCoordinator:
         futures = {}
         while self.queue_for_archiving:
             url = self.queue_for_archiving.popleft()
+            log_message("DEBUG", f"Submitting archive task for: {url}", debug_only=True)
             future = executor.submit(self.archiver.process_link_for_archiving, url)
             futures[future] = url
         return futures
@@ -964,7 +965,7 @@ class CrawlCoordinator:
                         log_message(
                             "INFO",
                             f"Marking root domain {root_domain} as skipped due to connection refused.",
-                            debug_only=True,
+                            debug_only=False,
                         )
                         self.skipped_root_domains.add(root_domain)
                         continue
@@ -989,6 +990,7 @@ class CrawlCoordinator:
                             )
                             self.crawling_queue.append((link, link_root_domain))
                             self.queue_for_archiving.append(link)
+                            log_message("DEBUG", f"New link {link} added to queues.", debug_only=True)
 
                 # Submit archive tasks
                 archive_futures = self._submit_archive_tasks(archiver_executor)
