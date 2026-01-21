@@ -61,7 +61,7 @@ SETTINGS = {
     "max_crawler_workers": 10,          # 0 = Unlimited
     "retries": 7,                      # retries for crawling/archiving
     "default_archiving_action": "N",   # 'n' normal, 'a' archive all, 's' skip all
-    "debug_mode": True,
+    "debug_mode": False,
     "max_archiver_workers": 0,         # 0 = unlimited
     "enable_visual_tree_generation": False,
     "min_link_search_delay": 0.0,
