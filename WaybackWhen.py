@@ -302,7 +302,7 @@ def get_requests_session() -> requests.Session:
     if SETTINGS["proxies"]:
         proxy = random.choice(SETTINGS["proxies"])
         session.proxies = {"http": proxy, "https": proxy}
-        log_message("DEBUG", f"Using proxy for requests session: {proxy}", debug_only=True)
+        log_message("DEBUG", f"Using proxy for Selenium: {proxy}", debug_only=False)
 
     return session
 
@@ -382,8 +382,7 @@ class Crawler:
         parsed_base_url = urlparse(base_url)
         base_netloc = parsed_base_url.netloc
         base_root_domain = get_root_domain(base_netloc)
-        # Removed: normalized_base_url_for_comparison = normalize_url(base_url)
-
+        
         log_message(
             "DEBUG",
             f"Starting _get_links_from_page_content for base_url: {base_url} "
@@ -464,7 +463,6 @@ class Crawler:
 
                     clean_url = normalize_url(full_url)
 
-                    # Modified condition: Removed clean_url.startswith(normalized_base_url_for_comparison)
                     if (
                         (link_root_domain == base_root_domain or SETTINGS["allow_external_links"])
                         and not is_irrelevant_link(clean_url)
@@ -913,7 +911,7 @@ class CrawlCoordinator:
         """Submit crawl tasks while respecting queue and skipped domains."""
         futures = {}
         while self.crawling_queue:
-            url, root_domain = self.crawling_queue.popleft()
+            url, root_domain = self.crawling_queue.pop() # Changed from popleft() to pop() for DFS
             if root_domain in self.skipped_root_domains:
                 log_message(
                     "INFO",
