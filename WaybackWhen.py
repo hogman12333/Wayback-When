@@ -279,6 +279,17 @@ def is_irrelevant_link(url: str) -> bool:
             return True
     return False
 
+def redact_proxy(proxy: str) -> str:
+    """Strips username/password from a proxy string for logging."""
+    parsed = urlparse(proxy)
+    if parsed.username or parsed.password:
+        # Reconstruct the URL without username and password
+        netloc = parsed.hostname
+        if parsed.port:
+            netloc = f"{netloc}:{parsed.port}"
+        return urlunparse((parsed.scheme, netloc, "", "", "", ""))
+    return proxy
+
 
 # =========================
 # HTTP Session Factory
@@ -302,7 +313,7 @@ def get_requests_session() -> requests.Session:
     if SETTINGS["proxies"]:
         proxy = random.choice(SETTINGS["proxies"])
         session.proxies = {"http": proxy, "https": proxy}
-        log_message("DEBUG", f"Using proxy for requests session: {proxy}", debug_only=True)
+        log_message("DEBUG", f"Using proxy for requests session: {redact_proxy(proxy)}", debug_only=True)
 
     return session
 
@@ -329,7 +340,7 @@ class WebDriverManager:
         if SETTINGS["proxies"]:
             proxy = random.choice(SETTINGS["proxies"])
             options.add_argument(f"--proxy-server={proxy}")
-            log_message("DEBUG", f"Using proxy for Selenium: {proxy}", debug_only=True)
+            log_message("DEBUG", f"Using proxy for Selenium: {redact_proxy(proxy)}", debug_only=True)
 
         prefs = {
             "download.prompt_for_download": False,
