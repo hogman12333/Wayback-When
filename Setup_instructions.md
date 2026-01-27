@@ -24,7 +24,7 @@ pip install requests beautifulsoup4 waybackpy selenium webdriver-manager seleniu
 
 ## 5. Run the Script
 ```cmd
-python your_script_name.py
+python WaybackWhen.py
 ```
 
 ---
