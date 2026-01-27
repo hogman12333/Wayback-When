@@ -56,21 +56,21 @@ class ConnectionRefusedForCrawlerError(Exception):
 # =========================
 
 SETTINGS = {
-    "archiving_cooldown": 28,          # days
+    "archiving_cooldown": 90,          # days
     "urls_per_minute_limit": 15,       # Wayback rate limit
     "max_crawler_workers": 10,          # 0 = Unlimited
-    "retries": 7,                      # retries for crawling/archiving
+    "retries": 3,                      # retries for crawling/archiving
     "default_archiving_action": "N",   # 'n' normal, 'a' archive all, 's' skip all
     "debug_mode": False,
-    "max_archiver_workers": 0,         # 0 = unlimited
+    "max_archiver_workers": 1,         # 0 = unlimited
     "enable_visual_tree_generation": False,
     "min_link_search_delay": 0.0,
-    "max_link_search_delay": 0.0,
+    "max_link_search_delay": 3.0,
     "safety_switch": False,             # Forces the script to slowdown to avoid detection
     "proxies": [],                     # e.g. ['http://user:pass@ip:port']
     "max_archiving_queue_size": 0,     # 0 = Unlimited
     "allow_external_links": False,     # New setting: True to allow crawling external links
-    "archive_timeout_seconds": 600,    # seconds for archiving a single link
+    "archive_timeout_seconds": 1200,    # seconds for archiving a single link
 }
 
 # Thread-local storage (if needed later)
@@ -302,7 +302,7 @@ def get_requests_session() -> requests.Session:
     if SETTINGS["proxies"]:
         proxy = random.choice(SETTINGS["proxies"])
         session.proxies = {"http": proxy, "https": proxy}
-        log_message("DEBUG", f"Using proxy for Selenium: {proxy}", debug_only=False)
+        log_message("DEBUG", f"Using proxy for requests session: {proxy}", debug_only=True)
 
     return session
 
@@ -329,7 +329,7 @@ class WebDriverManager:
         if SETTINGS["proxies"]:
             proxy = random.choice(SETTINGS["proxies"])
             options.add_argument(f"--proxy-server={proxy}")
-            log_message("DEBUG", f"Using proxy for Selenium: {proxy}", debug_only=False)
+            log_message("DEBUG", f"Using proxy for Selenium: {proxy}", debug_only=True)
 
         prefs = {
             "download.prompt_for_download": False,
@@ -382,7 +382,7 @@ class Crawler:
         parsed_base_url = urlparse(base_url)
         base_netloc = parsed_base_url.netloc
         base_root_domain = get_root_domain(base_netloc)
-        
+
         log_message(
             "DEBUG",
             f"Starting _get_links_from_page_content for base_url: {base_url} "
@@ -437,7 +437,7 @@ class Crawler:
                         log_message(
                             "INFO",
                             "Attempting to continue after automated wait...",
-                            debug_only=True,
+                            debug_only=False,
                         )
 
                 log_message(
@@ -445,15 +445,20 @@ class Crawler:
                     f"Page loaded for {base_url}. Extracting links...",
                     debug_only=True,
                 )
-                found_any_href = False
+                log_message("DEBUG", f"Page source for {base_url}:\n{driver.page_source}", debug_only=True)
 
-                for anchor_element in driver.find_elements(By.TAG_NAME, "a"):
+                found_any_href = False
+                anchor_elements = driver.find_elements(By.TAG_NAME, "a")
+                log_message("DEBUG", f"Found {len(anchor_elements)} <a> tags on {base_url}", debug_only=True)
+
+                for anchor_element in anchor_elements:
                     href = anchor_element.get_attribute("href")
                     if not href:
+                        log_message("DEBUG", f"Skipping <a> tag with no href attribute on {base_url}.", debug_only=True)
                         continue
 
                     found_any_href = True
-                    log_message("DEBUG", f"Found href: {href}", debug_only=True)
+                    log_message("DEBUG", f"Found raw href: {href} on {base_url}", debug_only=True)
 
                     full_url = urljoin(base_url, href)
                     parsed_full_url = urlparse(full_url)
@@ -470,24 +475,29 @@ class Crawler:
                         log_message(
                             "INFO",
                             f"Discovered internal link: {clean_url} "
-                            f"(Root domain: {link_root_domain})"
+                            f"(Root domain: {link_root_domain})",
+                            debug_only=False
                         )
                         links.add(clean_url)
                         if SETTINGS["enable_visual_tree_generation"]:
                             relationships_on_page.append((base_url, clean_url))
                     else:
+                        skip_reason = []
+                        if link_root_domain != base_root_domain and not SETTINGS["allow_external_links"]:
+                            skip_reason.append(f"External Domain ({link_root_domain} != {base_root_domain})")
+                        if is_irrelevant_link(clean_url):
+                            skip_reason.append("Irrelevant Link")
+
                         log_message(
                             "DEBUG",
-                            f"Skipping external/irrelevant link: {full_url} "
-                            f"(Link root domain: {link_root_domain} != Base root domain: {base_root_domain} "
-                            f"OR irrelevant link)",
+                            f"Skipping link: {full_url} - Reason: {'; '.join(skip_reason)}",
                             debug_only=True,
                         )
 
                 if not found_any_href:
                     log_message(
                         "DEBUG",
-                        f"No href attributes found on {base_url} by Selenium.",
+                        f"No href attributes found on {base_url} that were processed as valid links by Selenium.",
                         debug_only=True,
                     )
 
@@ -502,7 +512,7 @@ class Crawler:
                 log_message(
                     "WARNING",
                     f"Page load timed out for {base_url}. Retrying ({retries - attempt - 1} attempts left).",
-                    debug_only=True,
+                    debug_only=False,
                 )
                 attempt += 1
                 time.sleep(random.uniform(5, 15))
@@ -517,6 +527,7 @@ class Crawler:
                         "ERROR",
                         f"WebDriver error (Connection Refused) while crawling {base_url}: {e}. "
                         f"Skipping further crawling for this branch.",
+                        debug_only=False
                     )
                     raise ConnectionRefusedForCrawlerError(base_url)
                 else:
@@ -524,7 +535,7 @@ class Crawler:
                         "WARNING",
                         f"Non-connection-refused WebDriver error while crawling {base_url}: {e}. "
                         f"Retrying ({retries - attempt - 1} attempts left).",
-                        debug_only=True,
+                        debug_only=False,
                     )
                 attempt += 1
                 time.sleep(random.uniform(5, 15))
@@ -533,7 +544,7 @@ class Crawler:
                     "ERROR",
                     f"Unexpected error while crawling {base_url}: {e}. "
                     f"Retrying ({retries - attempt - 1} attempts left).",
-                    debug_only=True,
+                    debug_only=False,
                 )
                 attempt += 1
                 time.sleep(random.uniform(2, 10))
@@ -541,7 +552,7 @@ class Crawler:
         log_message(
             "ERROR",
             f"Failed to retrieve {base_url} after {retries} attempts.",
-            debug_only=True,
+            debug_only=False,
         )
         return set(), []
 
@@ -594,7 +605,7 @@ class Crawler:
         try:
             return self._get_links_from_page_content(url_to_crawl, driver)
         except ConnectionRefusedForCrawlerError as e:
-            log_message("INFO", f"Skipping branch due to connection refused: {e.args[0]}")
+            log_message("INFO", f"Skipping branch due to connection refused: {e.args[0]}", debug_only=False)
             return set(), []
         finally:
             self.webdriver_manager.destroy_driver(driver)
@@ -645,6 +656,7 @@ class Archiver:
                     log_message(
                         "SKIPPED",
                         f"{url} (Last archived {time_diff.total_seconds() // 3600:.1f} hours ago)",
+                        debug_only=False
                     )
                     return False, wayback
                 else:
@@ -671,7 +683,7 @@ class Archiver:
                         "WARNING",
                         f"Error checking archive for {url}: {e}. "
                         f"Retrying ({retries - attempt} attempts left).",
-                        debug_only=True
+                        debug_only=False
                     )
                     time.sleep(5)
                 else:
@@ -679,7 +691,7 @@ class Archiver:
                         "ERROR",
                         f"Failed to check archive for {url} after {retries} attempts: {e}. "
                         f"Defaulting to archive.",
-                        debug_only=True
+                        debug_only=False
                     )
                     return True, wayback
 
@@ -692,7 +704,7 @@ class Archiver:
         needs_save, wb_obj = self.should_archive(link,)
 
         if not needs_save:
-            return f"[SKIPPED] {link}"
+            return "SKIPPED", link # Return status and URL
 
         retries = SETTINGS["retries"]
         while retries > 0:
@@ -742,22 +754,22 @@ class Archiver:
                 log_message(
                     "WARNING",
                     f"Archiving {link} timed out after {SETTINGS['archive_timeout_seconds']} seconds. Skipping this attempt.",
-                    debug_only=True
+                    debug_only=False
                 )
                 retries -= 1
                 if retries > 0:
                     log_message(
                         "INFO",
                         f"Retrying archiving for {link} after timeout ({retries} attempts left)...",
-                        debug_only=True
+                        debug_only=False
                     )
                     time.sleep(2) # Short delay before next retry
                 else:
-                    return f"[FAILED - TIMEOUT] Failed to archive {link} after {SETTINGS['retries']} attempts due to timeout."
+                    return "FAILED", link # Return status and URL
             else:
                 # The thread completed, check its result
                 if archive_result and archive_result[0] is True:
-                    return f"[ARCHIVED] {link}"
+                    return "ARCHIVED", link # Return status and URL
                 elif archive_result and isinstance(archive_result[0], Exception):
                     e = archive_result[0] # Get the exception
                     error_message = str(e)
@@ -771,7 +783,7 @@ class Archiver:
                                 "WARNING",
                                 f"Wayback Machine rate limit hit for {link}. "
                                 f"Pausing for 1 minute and activating global cooldown ({retries} attempts left).",
-                                debug_only=True,
+                                debug_only=False,
                             )
                             # Set global cooldown for 60 seconds
                             rate_limit_active_until_time = time.time() + 60
@@ -781,20 +793,21 @@ class Archiver:
                         log_message(
                             "WARNING",
                             f"Could not save {link}: {e}. Retrying ({retries} attempts left)...",
+                            debug_only=False
                         )
                         time.sleep(2)
                     else:
-                        return f"[FAILED] Failed to archive {link} after multiple attempts: {e}"
+                        return "FAILED", link # Return status and URL
                 else:
                     retries -= 1
                     log_message(
                         "ERROR",
                         f"Archiving thread for {link} finished unexpectedly without result. Retrying ({retries} attempts left)...",
-                        debug_only=True
+                        debug_only=False
                     )
                     time.sleep(2) # Short delay before next retry
 
-        return f"[FAILED] Failed to archive {link} after multiple attempts."
+        return "FAILED", link # Return status and URL
 
 
 # =========================
@@ -858,6 +871,11 @@ class CrawlCoordinator:
         self.archiving_futures_set = set()
         self.skipped_root_domains = set()
 
+        # Archiving stats
+        self.archived_count = 0
+        self.skipped_count = 0
+        self.failed_count = 0
+
         self._resolve_worker_counts()
 
     def _resolve_worker_counts(self) -> None:
@@ -890,7 +908,7 @@ class CrawlCoordinator:
                 log_message(
                     "WARNING",
                     f"Invalid URL format for {url}. Skipping.",
-                    debug_only=True,
+                    debug_only=False,
                 )
                 continue
             normalized_url = normalize_url(url)
@@ -900,7 +918,7 @@ class CrawlCoordinator:
                 log_message(
                     "INFO",
                     f"Adding initial URL to queues: {normalized_url}",
-                    debug_only=True,
+                    debug_only=False,
                 )
                 self.visited_urls.add(normalized_url)
                 self.crawling_queue.append((normalized_url, root_domain))
@@ -917,7 +935,7 @@ class CrawlCoordinator:
                     "INFO",
                     f"Skipping URL {url} because its root domain {root_domain} "
                     f"was previously marked as connection refused.",
-                    debug_only=True,
+                    debug_only=False,
                 )
                 continue
             log_message("DEBUG", f"Submitting crawl task for: {url}", debug_only=True)
@@ -940,7 +958,7 @@ class CrawlCoordinator:
         log_message(
             "INFO",
             f"Starting main processing loop with {len(self.crawling_queue)} initial URLs.",
-            debug_only=True,
+            debug_only=False,
         )
 
         with concurrent.futures.ThreadPoolExecutor(
@@ -963,7 +981,7 @@ class CrawlCoordinator:
                         log_message(
                             "INFO",
                             f"Marking root domain {root_domain} as skipped due to connection refused.",
-                            debug_only=False,
+                            debug_only=True,
                         )
                         self.skipped_root_domains.add(root_domain)
                         continue
@@ -971,7 +989,7 @@ class CrawlCoordinator:
                         log_message(
                             "ERROR",
                             f"Error while crawling {url}: {e}",
-                            debug_only=True,
+                            debug_only=False,
                         )
                         continue
 
@@ -997,17 +1015,35 @@ class CrawlCoordinator:
                 for future in concurrent.futures.as_completed(archive_futures):
                     url = archive_futures[future]
                     try:
-                        result = future.result()
-                        log_message("INFO", result)
+                        status, result_url = future.result()
+                        if status == "ARCHIVED":
+                            self.archived_count += 1
+                            log_message("INFO", f"[{status}] {result_url}", debug_only=False)
+                        elif status == "SKIPPED":
+                            self.skipped_count += 1
+                            log_message("SKIPPED", f"[{status}] {result_url}", debug_only=False)
+                        elif status == "FAILED":
+                            self.failed_count += 1
+                            log_message("ERROR", f"[{status}] {result_url}", debug_only=False)
+
                     except Exception as e:
+                        self.failed_count += 1
                         log_message(
                             "ERROR",
                             f"Error while archiving {url}: {e}",
-                            debug_only=True,
+                            debug_only=False,
                         )
 
         # Build and show visual graph if enabled
         self.graph_builder.build_and_show()
+
+        # Print summary
+        log_message("info","\n========== Archiving Summary ==========", debug_only=False)
+        log_message("info",f"Total URLs processed: {self.archived_count + self.skipped_count + self.failed_count}", debug_only=False)
+        log_message("info",f"URLs Archived: {self.archived_count}", debug_only=False)
+        log_message("info",f"URLs Skipped: {self.skipped_count}", debug_only=False)
+        log_message("info",f"URLs Failed to Archive: {self.failed_count}", debug_only=False)
+        log_message("info","=======================================", debug_only=False)
 
 
 # =========================
