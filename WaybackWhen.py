@@ -17,6 +17,7 @@ import concurrent.futures
 import threading
 import warnings
 import random
+import os
 
 # Selenium imports
 from selenium import webdriver
@@ -335,7 +336,10 @@ class WebDriverManager:
         options.add_argument("--no-sandbox")
         options.add_argument("--disable-dev-shm-usage")
         options.add_argument("--disable-gpu")
-        options.binary_location = "/usr/bin/google-chrome"
+
+        # Conditionally set binary location for Colab environment
+        if os.name == 'posix' and os.path.exists('/usr/bin/google-chrome'):
+            options.binary_location = '/usr/bin/google-chrome'
 
         if SETTINGS["proxies"]:
             proxy = random.choice(SETTINGS["proxies"])
@@ -616,8 +620,8 @@ class Crawler:
         try:
             return self._get_links_from_page_content(url_to_crawl, driver)
         except ConnectionRefusedForCrawlerError as e:
-            log_message("INFO", f"Skipping branch due to connection refused: {e.args[0]}", debug_only=False)
-            return set(), []
+            # Re-raise the exception to be caught by the coordinator
+            raise e
         finally:
             self.webdriver_manager.destroy_driver(driver)
 
@@ -758,6 +762,7 @@ class Archiver:
                     archive_result.append(e) # Store exception
 
             archive_thread = threading.Thread(target=_save_target)
+            archive_thread.daemon = True # Set as daemon to prevent blocking shutdown
             archive_thread.start()
             archive_thread.join(timeout=SETTINGS['archive_timeout_seconds'])
 
@@ -767,16 +772,7 @@ class Archiver:
                     f"Archiving {link} timed out after {SETTINGS['archive_timeout_seconds']} seconds. Skipping this attempt.",
                     debug_only=False
                 )
-                retries -= 1
-                if retries > 0:
-                    log_message(
-                        "INFO",
-                        f"Retrying archiving for {link} after timeout ({retries} attempts left)...",
-                        debug_only=False
-                    )
-                    time.sleep(2) # Short delay before next retry
-                else:
-                    return "FAILED", link # Return status and URL
+                return "FAILED", link # Immediately return FAILED on timeout
             else:
                 # The thread completed, check its result
                 if archive_result and archive_result[0] is True:
@@ -894,8 +890,8 @@ class CrawlCoordinator:
         max_crawler_workers_setting = SETTINGS["max_crawler_workers"]
         if SETTINGS.get("safety_switch", False):
             self.max_crawler_workers = 1
-            self.min_link_search_delay = 15.0
-            self.max_link_search_delay = 12.0
+            SETTINGS["min_link_search_delay"] = 12.0 # Updated to modify SETTINGS
+            SETTINGS["max_link_search_delay"] = 15.0 # Updated to modify SETTINGS
             log_message(
                 "INFO",
                 "Safety is enabled. Crawling with 1 worker and increasing cooldown.",
@@ -1049,12 +1045,12 @@ class CrawlCoordinator:
         self.graph_builder.build_and_show()
 
         # Print summary
-        log_message("info","\n========== Archiving Summary ==========", debug_only=False)
-        log_message("info",f"Total URLs processed: {self.archived_count + self.skipped_count + self.failed_count}", debug_only=False)
-        log_message("info",f"URLs Archived: {self.archived_count}", debug_only=False)
-        log_message("info",f"URLs Skipped: {self.skipped_count}", debug_only=False)
-        log_message("info",f"URLs Failed to Archive: {self.failed_count}", debug_only=False)
-        log_message("info","=======================================", debug_only=False)
+        log_message("INFO","\n========== Archiving Summary ==========", debug_only=False)
+        log_message("INFO",f"Total URLs processed: {self.archived_count + self.skipped_count + self.failed_count}", debug_only=False)
+        log_message("INFO",f"URLs Archived: {self.archived_count}", debug_only=False)
+        log_message("INFO",f"URLs Skipped: {self.skipped_count}", debug_only=False)
+        log_message("INFO",f"URLs Failed to Archive: {self.failed_count}", debug_only=False)
+        log_message("INFO","=======================================", debug_only=False)
 
 
 # =========================
