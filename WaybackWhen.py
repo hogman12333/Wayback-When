@@ -32,8 +32,12 @@ from selenium_stealth import stealth
 import networkx as nx
 import matplotlib.pyplot as plt
 
-# Jupyter/console helper
-from IPython.display import clear_output
+# Jupyter/console helper (optional)
+try:
+    from IPython.display import clear_output
+except ImportError:
+    def clear_output(wait=False):
+        pass  # No-op when not in Jupyter
 
 warnings.filterwarnings("ignore", category=XMLParsedAsHTMLWarning)
 
