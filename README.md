@@ -57,7 +57,7 @@ Archives smartly: Checks if a page was saved recently to avoid wasting time on r
 
 * **Concurrency and Rate-limiting**
   * Cleaner use of `ThreadPoolExecutor` with explicit worker limits.
-  * Implimented DFS instead of BFS
+  * Implemented DFS instead of BFS
   * Global `archive_lock`, `last_archive_time`, and `rate_limit_active_until_time` coordinate per-thread and global rate limiting.
 
 * **Logging and Typing**
