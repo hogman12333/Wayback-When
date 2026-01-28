@@ -24,7 +24,7 @@ Archives smartly: Checks if a page was saved recently to avoid wasting time on r
   * **Changed defaults** and added new keys:
     * `archiving_cooldown` increased to **90** days.
     * `max_crawler_workers` default set to **10** (0 still supported as unlimited).
-    * `retries` increased to **7**.
+    * `retries` default set to **3**.
     * New keys: `min_link_search_delay`, `max_link_search_delay`, `safety_switch`, `proxies`, `max_archiving_queue_size`, `allow_external_links`, `archive_timeout_seconds`.
   * `max_archiver_workers` retained and clarified (0 = unlimited).
 
