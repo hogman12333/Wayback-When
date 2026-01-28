@@ -653,7 +653,6 @@ class Archiver:
     def should_archive(self, url: str):
         """Determine if URL should be archived based on cooldown and global action."""
         user_agent = generate_random_user_agent()
-        _ = get_requests_session()  # kept for parity; session not passed to waybackpy
         wayback = waybackpy.Url(url, user_agent)
 
         if self.global_archive_action == "a":
