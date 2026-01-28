@@ -19,7 +19,7 @@
 ## 4. Install Required Python Packages
 Navigate to your project directory and run:
 ```cmd
-pip install requests beautifulsoup4 waybackpy selenium webdriver-manager selenium-stealth networkx matplotlib
+pip install requests beautifulsoup4 waybackpy selenium webdriver-manager selenium-stealth networkx matplotlib ipython
 ```
 
 ## 5. Run the Script
@@ -42,7 +42,7 @@ If missing:
 
 **Debian/Ubuntu:**
 ```bash
-sudo apt install python3 python3-pip
+sudo apt install python3 python3-pip 
 ```
 
 **Fedora/RHEL:**
@@ -75,12 +75,12 @@ google-chrome --version
 
 ## 4. Install Required Python Packages
 ```bash
-pip3 install requests beautifulsoup4 waybackpy selenium webdriver-manager selenium-stealth networkx matplotlib
+pip3 install requests beautifulsoup4 waybackpy selenium webdriver-manager selenium-stealth networkx matplotlib ipython
 ```
 
 Optional verification:
 ```bash
-python3 -c "import requests, bs4, waybackpy, selenium, webdriver_manager, selenium_stealth, networkx, matplotlib"
+python3 -c import requests, bs4, waybackpy, selenium, webdriver_manager, selenium_stealth, networkx, matplotlib ipython
 ```
 
 ## 5. Run the Script
