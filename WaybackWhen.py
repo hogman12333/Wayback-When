@@ -712,7 +712,7 @@ class Archiver:
 
         return False, wayback
 
-    def process_link_for_archiving(self, link: str) -> str:
+    def process_link_for_archiving(self, link: str) -> tuple[str, str]:
         """Check if link needs archiving and attempt to save it to Wayback."""
         global last_archive_time, rate_limit_active_until_time
 
