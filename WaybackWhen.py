@@ -523,7 +523,7 @@ class Crawler:
                 log_message(
                     "DEBUG",
                     f"Finished processing {base_url}. Discovered {len(links)} links.",
-                    debug_only=True,
+                    debug_only=False,
                 )
                 return links, relationships_on_page
 
@@ -702,7 +702,7 @@ class Archiver:
                         "WARNING",
                         f"Error checking archive for {url}: {e}. "
                         f"Retrying ({retries - attempt} attempts left).",
-                        debug_only=False
+                        debug_only=True
                     )
                     time.sleep(5)
                 else:
@@ -892,24 +892,27 @@ class CrawlCoordinator:
     def _resolve_worker_counts(self) -> None:
         """Resolve max workers for crawler and archiver based on SETTINGS."""
         max_crawler_workers_setting = SETTINGS["max_crawler_workers"]
-        if SETTINGS.get("safety_switch", False):
-            self.max_crawler_workers = 1
-            self.min_link_search_delay = 12.0
-            self.max_link_search_delay = 15.0
-            log_message(
-                "INFO",
-                "Safety is enabled. Crawling with 1 worker and increasing cooldown.",
-                debug_only=False,
-            )
+        if max_crawler_workers_setting == 0:
+            self.max_crawler_workers = None
         else:
-            self.min_link_search_delay = SETTINGS["min_link_search_delay"]
-            self.max_link_search_delay = SETTINGS["max_link_search_delay"]
+            self.max_crawler_workers = max_crawler_workers_setting
 
         max_archiver_workers_setting = SETTINGS["max_archiver_workers"]
         if max_archiver_workers_setting == 0:
             self.max_archiver_workers = None
         else:
             self.max_archiver_workers = max_archiver_workers_setting
+
+        if SETTINGS.get("safety_switch", False):
+            self.max_crawler_workers = 1
+            SETTINGS["min_link_search_delay"] = 12.0 # Updated to modify SETTINGS
+            SETTINGS["max_link_search_delay"] = 15.0 # Updated to modify SETTINGS
+            log_message(
+                "INFO",
+                "Safety is enabled. Crawling with 1 worker and increasing cooldown.",
+                debug_only=False,
+            )
+
 
     def add_initial_urls(self, urls):
         """Normalize and enqueue initial URLs for crawling and archiving."""
@@ -1016,7 +1019,7 @@ class CrawlCoordinator:
                             )
                             self.crawling_queue.append((link, link_root_domain))
                             self.queue_for_archiving.append(link)
-                            log_message("DEBUG", f"New link {link} added to queues.", debug_only=True)
+                            log_message("DEBUG", f"New link {link} added to queues.", debug_only=False)
 
                 # Submit archive tasks
                 archive_futures = self._submit_archive_tasks(archiver_executor)
