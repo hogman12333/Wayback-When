@@ -894,17 +894,16 @@ class CrawlCoordinator:
         max_crawler_workers_setting = SETTINGS["max_crawler_workers"]
         if SETTINGS.get("safety_switch", False):
             self.max_crawler_workers = 1
-            SETTINGS["min_link_search_delay"] = 12.0 # Updated to modify SETTINGS
-            SETTINGS["max_link_search_delay"] = 15.0 # Updated to modify SETTINGS
+            self.min_link_search_delay = 12.0
+            self.max_link_search_delay = 15.0
             log_message(
                 "INFO",
                 "Safety is enabled. Crawling with 1 worker and increasing cooldown.",
                 debug_only=False,
             )
-        elif max_crawler_workers_setting == 0:
-            self.max_crawler_workers = None
         else:
-            self.max_crawler_workers = max_crawler_workers_setting
+            self.min_link_search_delay = SETTINGS["min_link_search_delay"]
+            self.max_link_search_delay = SETTINGS["max_link_search_delay"]
 
         max_archiver_workers_setting = SETTINGS["max_archiver_workers"]
         if max_archiver_workers_setting == 0:
