@@ -73,7 +73,7 @@ SETTINGS = {
     "max_archiving_queue_size": 0,     # 0 = Unlimited
     "max_crawler_workers": 10,          # 0 = Unlimited
     "max_link_search_delay": 5.0,
-    "max_runtime": 10,                  # Maximum runtime in Seconds (0 = Unlimited)
+    "max_runtime": 0,                  # Maximum runtime in Seconds (0 = Unlimited)
     "min_link_search_delay": 0.0,
     "proxies": [],                     # e.g. ['http://user:pass@ip:port']
     "retries": 3,                      # retries for crawling/archiving
