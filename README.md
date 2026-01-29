@@ -34,6 +34,7 @@ The archiver decides which pages actually need to be saved. For every link the s
 
  ### Miscellaneous
  * Changed message from ``Adding initial URL to queues:`` to ``Starting with URLs:``
+ * Depreciated ``max_archiving_queue_size``
 
 ## Contributing
 
