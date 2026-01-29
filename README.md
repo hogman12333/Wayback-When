@@ -23,7 +23,7 @@ The archiver decides which pages actually need to be saved. For every link the s
  * Added Progress Bar to the Archival Messages
 
  ### Error Handling
- * Hid ``URLLIB3`` Error Messages behind ``DEBUG_MODE``.
+ * Hid ``urllib3`` Error Messages behind ``DEBUG_MODE``.
  * Hid ``WebDriver`` Error Messages behind ``DEBUG_MODE``.
  * Hid "Attempting to continue after automated wait..." behind ``DEBUG_MODE``.
  * Hid "CAPTCHA DETECTED for ``{base_url}``. Waiting 5-10 seconds..." behind ``DEBUG_MODE``.
