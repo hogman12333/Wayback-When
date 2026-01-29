@@ -70,7 +70,7 @@ SETTINGS = {
     "max_archiver_workers": 1,         # 0 = unlimited
     "enable_visual_tree_generation": False,
     "min_link_search_delay": 0.0,
-    "max_link_search_delay": 3.0,
+    "max_link_search_delay": 5.0,
     "safety_switch": False,             # Forces the script to slowdown to avoid detection
     "proxies": [],                     # e.g. ['http://user:pass@ip:port']
     "max_archiving_queue_size": 0,     # 0 = Unlimited
@@ -464,7 +464,6 @@ class Crawler:
                     f"Page loaded for {base_url}. Extracting links...",
                     debug_only=True,
                 )
-                log_message("DEBUG", f"Page source for {base_url}:\n{driver.page_source}", debug_only=True)
 
                 found_any_href = False
                 anchor_elements = driver.find_elements(By.TAG_NAME, "a")
@@ -495,7 +494,7 @@ class Crawler:
                             "INFO",
                             f"Discovered internal link: {clean_url} "
                             f"(Root domain: {link_root_domain})",
-                            debug_only=False
+                            debug_only=True
                         )
                         links.add(clean_url)
                         if SETTINGS["enable_visual_tree_generation"]:
@@ -675,7 +674,7 @@ class Archiver:
                     log_message(
                         "SKIPPED",
                         f"{url} (Last archived {time_diff.total_seconds() // 3600:.1f} hours ago)",
-                        debug_only=False
+                        debug_only=True
                     )
                     return False, wayback
                 else:
@@ -692,7 +691,7 @@ class Archiver:
                 log_message(
                     "INFO",
                     f"No existing archive found for {url}. Archiving.",
-                    debug_only=False
+                    debug_only=True
                 )
                 return True, wayback
             except Exception as e:
@@ -710,7 +709,7 @@ class Archiver:
                         "ERROR",
                         f"Failed to check archive for {url} after {retries} attempts: {e}. "
                         f"Defaulting to archive.",
-                        debug_only=False
+                        debug_only=True
                     )
                     return True, wayback
 
@@ -723,7 +722,7 @@ class Archiver:
         needs_save, wb_obj = self.should_archive(link,)
 
         if not needs_save:
-            return "SKIPPED", link # Return status and URL
+            return "SKIPPED", link
 
         retries = SETTINGS["retries"]
         while retries > 0:
@@ -772,7 +771,7 @@ class Archiver:
 
             if archive_thread.is_alive():
                 log_message(
-                    "WARNING",
+                    "INFO",
                     f"Archiving {link} timed out after {SETTINGS['archive_timeout_seconds']} seconds. Skipping this attempt.",
                     debug_only=False
                 )
@@ -794,7 +793,7 @@ class Archiver:
                                 "WARNING",
                                 f"Wayback Machine rate limit hit for {link}. "
                                 f"Pausing for 1 minute and activating global cooldown ({retries} attempts left).",
-                                debug_only=False,
+                                debug_only=True,
                             )
                             # Set global cooldown for 60 seconds
                             rate_limit_active_until_time = time.time() + 60
@@ -804,7 +803,7 @@ class Archiver:
                         log_message(
                             "WARNING",
                             f"Could not save {link}: {e}. Retrying ({retries} attempts left)...",
-                            debug_only=False
+                            debug_only=True
                         )
                         time.sleep(2)
                     else:
@@ -814,7 +813,7 @@ class Archiver:
                     log_message(
                         "ERROR",
                         f"Archiving thread for {link} finished unexpectedly without result. Retrying ({retries} attempts left)...",
-                        debug_only=False
+                        debug_only=True
                     )
                     time.sleep(2) # Short delay before next retry
 
@@ -878,8 +877,8 @@ class CrawlCoordinator:
         self.crawling_queue = deque()
         self.queue_for_archiving = deque()
         self.visited_urls = set()
-        self.crawling_futures_set = set()
-        self.archiving_futures_set = set()
+        self.crawling_futures_set = set() # Store (Future, url, root_domain) tuples
+        self.archiving_futures_set = set() # Store (Future, url) tuples
         self.skipped_root_domains = set()
 
         # Archiving stats
@@ -893,85 +892,82 @@ class CrawlCoordinator:
         """Resolve max workers for crawler and archiver based on SETTINGS."""
         max_crawler_workers_setting = SETTINGS["max_crawler_workers"]
         if max_crawler_workers_setting == 0:
-            self.max_crawler_workers = None
+            self.max_crawler_workers = None # None implies unlimited
         else:
             self.max_crawler_workers = max_crawler_workers_setting
 
         max_archiver_workers_setting = SETTINGS["max_archiver_workers"]
         if max_archiver_workers_setting == 0:
-            self.max_archiver_workers = None
+            self.max_archiver_workers = None # None implies unlimited
         else:
             self.max_archiver_workers = max_archiver_workers_setting
 
         if SETTINGS.get("safety_switch", False):
             self.max_crawler_workers = 1
-            SETTINGS["min_link_search_delay"] = 12.0 # Updated to modify SETTINGS
-            SETTINGS["max_link_search_delay"] = 15.0 # Updated to modify SETTINGS
+            SETTINGS["min_link_search_delay"] = 12.0
+            SETTINGS["max_link_search_delay"] = 15.0
             log_message(
                 "INFO",
                 "Safety is enabled. Crawling with 1 worker and increasing cooldown.",
                 debug_only=False,
             )
 
-
     def add_initial_urls(self, urls):
         """Normalize and enqueue initial URLs for crawling and archiving."""
         for url in urls:
+            # If prefix is missing,  http:// as a default
+            if not (url.startswith("http://") or url.startswith("https://")):
+                url = "http://" + url
+                log_message("INFO", f"Prepending 'http://' to URL: {url}", debug_only=True)
+
             if not url.startswith("http"):
-                log_message(
-                    "WARNING",
-                    f"Invalid URL format for {url}. Skipping.",
-                    debug_only=False,
-                )
+                log_message("WARNING", f"Invalid URL format for {url}. Skipping.", debug_only=False)
                 continue
+
             normalized_url = normalize_url(url)
             root_domain = get_root_domain(urlparse(normalized_url).netloc)
 
             if normalized_url not in self.visited_urls:
-                log_message(
-                    "INFO",
-                    f"Adding initial URL to queues: {normalized_url}",
-                    debug_only=False,
-                )
+                log_message("INFO", f"Adding initial URL to queues: {normalized_url}", debug_only=False)
                 self.visited_urls.add(normalized_url)
                 self.crawling_queue.append((normalized_url, root_domain))
                 self.queue_for_archiving.append(normalized_url)
-                log_message("DEBUG", f"Queued {normalized_url} for crawling and archiving.", debug_only=True)
 
     def _submit_crawl_tasks(self, executor):
-        """Submit crawl tasks while respecting queue and skipped domains."""
-        futures = {}
-        while self.crawling_queue:
-            url, root_domain = self.crawling_queue.pop() # Changed from popleft() to pop() for DFS
+        """Submit crawl tasks while respecting queue and skipped domains and worker limits."""
+        while (
+            self.crawling_queue
+            and (self.max_crawler_workers is None or len(self.crawling_futures_set) < self.max_crawler_workers)
+        ):
+            url, root_domain = self.crawling_queue.popleft()
             if root_domain in self.skipped_root_domains:
                 log_message(
                     "INFO",
-                    f"Skipping URL {url} because its root domain {root_domain} "
-                    f"was previously marked as connection refused.",
-                    debug_only=False,
+                    f"Skipping URL {url} because its root domain {root_domain} was marked as refused.",
+                    debug_only=True,
                 )
                 continue
-            log_message("DEBUG", f"Submitting crawl task for: {url}", debug_only=True)
             future = executor.submit(self.crawler.crawl_single_page, url)
-            futures[future] = (url, root_domain)
-        return futures
-
+            self.crawling_futures_set.add((future, url, root_domain))
+            log_message("INFO", f"Submitted crawl task for: {url}", debug_only=True)
     def _submit_archive_tasks(self, executor):
-        """Submit archiving tasks for URLs in the archiving queue."""
-        futures = {}
-        while self.queue_for_archiving:
+        """Submit archiving tasks for URLs in the archiving queue, respecting worker limits."""
+        while (
+            self.queue_for_archiving
+            and (self.max_archiver_workers is None or len(self.archiving_futures_set) < self.max_archiver_workers)
+            and (SETTINGS["max_archiving_queue_size"] == 0 or len(self.archiving_futures_set) < SETTINGS["max_archiving_queue_size"])
+        ):
             url = self.queue_for_archiving.popleft()
-            log_message("DEBUG", f"Submitting archive task for: {url}", debug_only=True)
             future = executor.submit(self.archiver.process_link_for_archiving, url)
-            futures[future] = url
-        return futures
+            self.archiving_futures_set.add((future, url))
+            log_message("DEBUG", f"Submitted archive task for: {url}", debug_only=True)
 
     def run(self):
         """Main coordination loop: crawl + archive until queues are empty."""
         log_message(
             "INFO",
             f"Starting main processing loop with {len(self.crawling_queue)} initial URLs.",
-            debug_only=False,
+            debug_only=True,
         )
 
         with concurrent.futures.ThreadPoolExecutor(
@@ -980,84 +976,102 @@ class CrawlCoordinator:
             max_workers=self.max_archiver_workers
         ) as archiver_executor:
 
-            while self.crawling_queue or self.queue_for_archiving:
-                # Submit crawl tasks
-                crawl_futures = self._submit_crawl_tasks(crawler_executor)
+            while True:
+                # Submit new tasks from queues if workers are available
+                self._submit_crawl_tasks(crawler_executor)
+                self._submit_archive_tasks(archiver_executor)
 
-                # Process crawl results
-                for future in concurrent.futures.as_completed(crawl_futures):
-                    url = crawl_futures[future][0] # Access the url from the tuple
-                    root_domain = crawl_futures[future][1] # Access the root_domain from the tuple
-                    try:
-                        links_on_page, relationships_on_page = future.result()
-                    except ConnectionRefusedForCrawlerError:
-                        log_message(
-                            "INFO",
-                            f"Marking root domain {root_domain} as skipped due to connection refused.",
-                            debug_only=True,
-                        )
-                        self.skipped_root_domains.add(root_domain)
+                # Check if all queues are empty and all active futures are done
+                if not self.crawling_queue and not self.queue_for_archiving and \
+                   not self.crawling_futures_set and not self.archiving_futures_set:
+                    log_message("INFO", "All crawling and archiving tasks completed.", debug_only=False)
+                    break # All work is done
+
+                # Collect all active futures to wait on
+                all_active_futures = {f_info[0] for f_info in self.crawling_futures_set} | \
+                                     {f_info[0] for f_info in self.archiving_futures_set}
+
+                if not all_active_futures:
+                    # This can happen if all workers are busy but more tasks are in queue,
+                    # or if there's a momentary lull before new tasks are submitted.
+                    # Sleep briefly to avoid busy-waiting.
+                    time.sleep(0.1)
+                    continue
+
+                # Wait for any of the active futures to complete
+                done_futures, _ = concurrent.futures.wait(
+                    all_active_futures,
+                    timeout=1, # Periodically check queues for new tasks
+                    return_when=concurrent.futures.FIRST_COMPLETED
+                )
+
+                # Process completed futures
+                for future in done_futures:
+                    # Check if it's a crawling future
+                    found_and_processed = False
+                    for cf_info in list(self.crawling_futures_set): # Iterate over a copy to allow modification
+                        if cf_info[0] == future:
+                            self.crawling_futures_set.remove(cf_info)
+                            url, current_branch_root = cf_info[1], cf_info[2]
+                            try:
+                                links_on_page, relationships_on_page = future.result()
+                                log_message("DEBUG", f"Crawl task for {url} completed.", debug_only=True)
+                                if SETTINGS["enable_visual_tree_generation"]:
+                                    self.graph_builder.add_relationships(relationships_on_page)
+
+                                # Enqueue discovered links: Treat every link as a potential new branch
+                                for link in links_on_page:
+                                    if link not in self.visited_urls:
+                                        self.visited_urls.add(link)
+
+                                        # Determine the root domain for this specific link
+                                        link_root_domain = get_root_domain(urlparse(link).netloc)
+
+                                        # Add to crawling queue with its own root domain context
+                                        self.crawling_queue.append((link, link_root_domain))
+                                        self.queue_for_archiving.append(link)
+                                        log_message("DEBUG", f"Branching to: {link_root_domain} via {link}", debug_only=True)
+                            except ConnectionRefusedForCrawlerError:
+                                log_message("INFO", f"Marking branch {current_branch_root} as skipped due to connection refused.", debug_only=False)
+                                self.skipped_root_domains.add(current_branch_root)
+                            except Exception as e:
+                                log_message("ERROR", f"Error while crawling {url}: {e}", debug_only=False)
+                            found_and_processed = True
+                            break # Found and processed this crawling future
+
+                    if found_and_processed:
                         continue
-                    except Exception as e:
-                        log_message(
-                            "ERROR",
-                            f"Error while crawling {url}: {e}",
-                            debug_only=False,
-                        )
-                        continue
 
-                    # Add relationships to graph builder
-                    if SETTINGS["enable_visual_tree_generation"]:
-                        self.graph_builder.add_relationships(relationships_on_page)
+                    # If not a crawling future, check if it's an archiving future
+                    for af_info in list(self.archiving_futures_set):
+                        if af_info[0] == future:
+                            self.archiving_futures_set.remove(af_info)
+                            url = af_info[1]
+                            try:
+                                status, result_url = future.result()
+                                if status == "ARCHIVED":
+                                    self.archived_count += 1
+                                elif status == "SKIPPED":
+                                    self.skipped_count += 1
+                                elif status == "FAILED":
+                                    self.failed_count += 1
+                                log_message("INFO", f"[{status}] {result_url}", debug_only=False)
 
-                    # Enqueue discovered links
-                    for link in links_on_page:
-                        if link not in self.visited_urls:
-                            self.visited_urls.add(link)
-                            link_root_domain = get_root_domain(
-                                urlparse(link).netloc
-                            )
-                            self.crawling_queue.append((link, link_root_domain))
-                            self.queue_for_archiving.append(link)
-                            log_message("DEBUG", f"New link {link} added to queues.", debug_only=False)
+                            except Exception as e:
+                                self.failed_count += 1
+                                log_message("ERROR", f"Error while archiving {url}: {e}", debug_only=True)
+                            break # Found and processed this archiving future
 
-                # Submit archive tasks
-                archive_futures = self._submit_archive_tasks(archiver_executor)
-
-                # Process archive results
-                for future in concurrent.futures.as_completed(archive_futures):
-                    url = archive_futures[future]
-                    try:
-                        status, result_url = future.result()
-                        if status == "ARCHIVED":
-                            self.archived_count += 1
-                            log_message("INFO", f"[{status}] {result_url}", debug_only=False)
-                        elif status == "SKIPPED":
-                            self.skipped_count += 1
-                            log_message("SKIPPED", f"[{status}] {result_url}", debug_only=False)
-                        elif status == "FAILED":
-                            self.failed_count += 1
-                            log_message("ERROR", f"[{status}] {result_url}", debug_only=False)
-
-                    except Exception as e:
-                        self.failed_count += 1
-                        log_message(
-                            "ERROR",
-                            f"Error while archiving {url}: {e}",
-                            debug_only=False,
-                        )
-
-        # Build and show visual graph if enabled
+        # Finalize
         self.graph_builder.build_and_show()
 
-        # Print summary
-        log_message("INFO","\n========== Archiving Summary ==========", debug_only=False)
-        log_message("INFO",f"Total URLs processed: {self.archived_count + self.skipped_count + self.failed_count}", debug_only=False)
-        log_message("INFO",f"URLs Archived: {self.archived_count}", debug_only=False)
-        log_message("INFO",f"URLs Skipped: {self.skipped_count}", debug_only=False)
-        log_message("INFO",f"URLs Failed to Archive: {self.failed_count}", debug_only=False)
-        log_message("INFO","=======================================", debug_only=False)
-
+        print("\n========== Archiving Summary ==========")
+        total = self.archived_count + self.skipped_count + self.failed_count
+        print(f"Total URLs processed: {total}")
+        print(f"URLs Archived: {self.archived_count}")
+        print(f"URLs Skipped: {self.skipped_count}")
+        print(f"URLs Failed: {self.failed_count}")
+        print("=======================================")
 
 # =========================
 # Main Entry Point
@@ -1069,6 +1083,7 @@ def main():
 
     target_urls_input = input(
         "Enter URLs (comma-separated, e.g., https://notawebsite.org/, https://example.com/): "
+
     ).strip()
     initial_urls_raw = [
         url.strip() for url in target_urls_input.split(",") if url.strip()
