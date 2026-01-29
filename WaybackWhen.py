@@ -981,16 +981,17 @@ class CrawlCoordinator:
 
         start_time = time.time()
 
-        with concurrent.futures.ThreadPoolExecutor(
-            max_workers=self.max_crawler_workers
-        ) as crawler_executor, concurrent.futures.ThreadPoolExecutor(
-            max_workers=self.max_archiver_workers
-        ) as archiver_executor:
+        crawler_executor = concurrent.futures.ThreadPoolExecutor(max_workers=self.max_crawler_workers)
+        archiver_executor = concurrent.futures.ThreadPoolExecutor(max_workers=self.max_archiver_workers)
 
+        try:
             while True:
                 # Check for max runtime
                 if SETTINGS["max_runtime"] > 0 and (time.time() - start_time) > SETTINGS["max_runtime"]:
                     log_message("INFO", f"Max runtime of {SETTINGS['max_runtime']} seconds reached. Stopping.", debug_only=False)
+                    # Immediately shut down executors and cancel pending futures
+                    crawler_executor.shutdown(wait=False, cancel_futures=True)
+                    archiver_executor.shutdown(wait=False, cancel_futures=True)
                     break
 
                 # Submit new tasks from queues if workers are available
@@ -1081,7 +1082,7 @@ class CrawlCoordinator:
                                 progress_suffix = ""
                                 if self.total_links_to_archive > 0:
                                     progress_percent = (processed / self.total_links_to_archive) * 100
-                                    progress_suffix = f" ({processed}/{self.total_links_to_archive} {progress_percent:.0f}%)"
+                                    progress_suffix = f" ({processed}/{self.total_links_to_archive} {progress_percent:.3f}%)"
                                 else:
                                     progress_suffix = f" ({processed} links processed)"
                                     
@@ -1093,12 +1094,18 @@ class CrawlCoordinator:
                                 progress_suffix = ""
                                 if self.total_links_to_archive > 0:
                                     progress_percent = (processed / self.total_links_to_archive) * 100
-                                    progress_suffix = f" ({processed}/{self.total_links_to_archive} {progress_percent:.0f}%)"
+                                    progress_suffix = f" ({processed}/{self.total_links_to_archive} {progress_percent:.3f}%)"
                                 else:
                                     progress_suffix = f" ({processed} links processed)"
                                     
                                 log_message("ERROR", f"Error while archiving {url}: {e}{progress_suffix}", debug_only=False)
                             break
+
+        finally:
+            # Ensure executors are shut down cleanly even if loop breaks unexpectedly
+            crawler_executor.shutdown(wait=True)
+            archiver_executor.shutdown(wait=True)
+            log_message("INFO", "Executors shut down.", debug_only=True)
 
         # Finalize
         self.graph_builder.build_and_show()
