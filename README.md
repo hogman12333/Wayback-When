@@ -82,6 +82,7 @@ The archiver decides which pages actually need to be saved. For every link the s
 * **Behavioral Changes**
   * Default behavior is more conservative (longer archiving cooldown, debug enabled, limited crawler workers). Update `SETTINGS` to restore previous aggressive defaults if desired.
   * The crawler no longer requires discovered links to be strict sub-paths of the base URL; `allow_external_links` controls whether external domains are permitted.
+  * Better Link Handling
 
 * **Robustness Fixes**
   * Fixed potential indefinite blocking on `wb_obj.save()` by adding a timeout and threaded execution.
