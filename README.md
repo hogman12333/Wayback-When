@@ -17,9 +17,13 @@ The archiver decides which pages actually need to be saved. For every link the s
  ### Added Features
  * Added Runtime to Archiving Summary
 
+ ### Error Handling
+ * Hid ``URLLIB3`` Error Messages behind ``DEBUG_MODE``.
+ * Hid ``WebDriver`` Error Messages behind ``DEBUG_MODE``.
+
  ### Bug Fixes
- * Fixed issue where ``Finished processing (Link) Discovered (number) links`` would be shown as ``DEBUG`` instead of ``INFO``
- * Fixed issue where URL Normalisation would add ``HTTP://" to FTP and RSYNC URLs, causing scraping issues
+ * Fixed issue where ``Finished processing (Link) Discovered (number) links`` would be shown as ``DEBUG`` instead of ``INFO``.
+ * Fixed issue where URL Normalisation would add ``HTTP://`` to FTP and RSYNC URLs, causing scraping issues.
 
 
 ## Contributing
