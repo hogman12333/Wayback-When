@@ -89,7 +89,7 @@ The archiver decides which pages actually need to be saved. For every link the s
   * Added proxy support for both `requests` sessions and Selenium driver options.
 
 * **Cleaner Output**
-  *Cleaner Terminal Output
+  * Cleaner Terminal Output
 # Removed and Deprecated
 
 * **Removed or Replaced**
