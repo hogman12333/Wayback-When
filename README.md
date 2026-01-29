@@ -30,6 +30,8 @@ The archiver decides which pages actually need to be saved. For every link the s
  * Fixed issue where ``Finished processing (Link) Discovered (number) links`` would be shown as ``DEBUG`` instead of ``INFO``.
  * Fixed issue where URL Normalisation would add ``HTTP://`` to FTP and RSYNC URLs, causing scraping issues.
 
+ ### Miscellaneous
+ * Changed message from ``Adding initial URL to queues:`` to ``Starting with URLs:``
 
 ## Contributing
 
