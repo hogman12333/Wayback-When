@@ -70,7 +70,6 @@ SETTINGS = {
     "default_archiving_action": "N",   # 'n' normal, 'a' archive all, 's' skip all
     "enable_visual_tree_generation": False,
     "max_archiver_workers": 1,         # 0 = unlimited
-    "max_archiving_queue_size": 0,     # 0 = Unlimited
     "max_crawler_workers": 10,         # 0 = Unlimited
     "min_link_search_delay": 0.0,
     "max_link_search_delay": 5.0,
@@ -818,7 +817,7 @@ class Archiver:
                         f"Archiving thread for {link} finished unexpectedly without result. Retrying ({retries} attempts left)...",
                         debug_only=True
                     )
-                    time.sleep(2) # Short delay before next retry
+                    time.sleep(2)
 
         return "FAILED", link # Return status and URL
 
@@ -964,7 +963,6 @@ class CrawlCoordinator:
         while (
             self.queue_for_archiving
             and (self.max_archiver_workers is None or len(self.archiving_futures_set) < self.max_archiver_workers)
-            and (SETTINGS["max_archiving_queue_size"] == 0 or len(self.archiving_futures_set) < SETTINGS["max_archiving_queue_size"])
         ):
             url = self.queue_for_archiving.popleft()
             future = executor.submit(self.archiver.process_link_for_archiving, url)
@@ -981,10 +979,13 @@ class CrawlCoordinator:
 
         start_time = time.time()
 
-        crawler_executor = concurrent.futures.ThreadPoolExecutor(max_workers=self.max_crawler_workers)
-        archiver_executor = concurrent.futures.ThreadPoolExecutor(max_workers=self.max_archiver_workers)
+        crawler_executor = None # Initialize to None
+        archiver_executor = None # Initialize to None
 
         try:
+            crawler_executor = concurrent.futures.ThreadPoolExecutor(max_workers=self.max_crawler_workers)
+            archiver_executor = concurrent.futures.ThreadPoolExecutor(max_workers=self.max_archiver_workers)
+
             while True:
                 # Check for max runtime
                 if SETTINGS["max_runtime"] > 0 and (time.time() - start_time) > SETTINGS["max_runtime"]:
@@ -1065,7 +1066,7 @@ class CrawlCoordinator:
                         if af_info[0] == future:
                             self.archiving_futures_set.remove(af_info)
                             url = af_info[1]
-                            
+
                             status = "FAILED" # Default status in case of exception
                             result_url = url # Default result_url
 
@@ -1077,15 +1078,15 @@ class CrawlCoordinator:
                                     self.skipped_count += 1
                                 elif status == "FAILED":
                                     self.failed_count += 1
-                                
+
                                 processed = self.archived_count + self.skipped_count + self.failed_count
                                 progress_suffix = ""
                                 if self.total_links_to_archive > 0:
                                     progress_percent = (processed / self.total_links_to_archive) * 100
-                                    progress_suffix = f" ({processed}/{self.total_links_to_archive} {progress_percent:.3f}%)"
+                                    progress_suffix = f" ({processed}/{self.total_links_to_archive} {progress_percent:.2f}%)"
                                 else:
                                     progress_suffix = f" ({processed} links processed)"
-                                    
+
                                 log_message("INFO", f"[{status}] {result_url}{progress_suffix}", debug_only=False)
 
                             except Exception as e:
@@ -1094,17 +1095,19 @@ class CrawlCoordinator:
                                 progress_suffix = ""
                                 if self.total_links_to_archive > 0:
                                     progress_percent = (processed / self.total_links_to_archive) * 100
-                                    progress_suffix = f" ({processed}/{self.total_links_to_archive} {progress_percent:.3f}%)"
+                                    progress_suffix = f" ({processed}/{self.total_links_to_archive} {progress_percent:.2f}%)"
                                 else:
                                     progress_suffix = f" ({processed} links processed)"
-                                    
+
                                 log_message("ERROR", f"Error while archiving {url}: {e}{progress_suffix}", debug_only=False)
                             break
 
         finally:
             # Ensure executors are shut down cleanly even if loop breaks unexpectedly
-            crawler_executor.shutdown(wait=True)
-            archiver_executor.shutdown(wait=True)
+            if crawler_executor is not None:
+                crawler_executor.shutdown(wait=True)
+            if archiver_executor is not None:
+                archiver_executor.shutdown(wait=True)
             log_message("INFO", "Executors shut down.", debug_only=True)
 
         # Finalize
