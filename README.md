@@ -1,9 +1,15 @@
 # Wayback When
 
+Wayback When is a tool that crawls a website and saves its pages to the Internet Archive’s Wayback Machine. It uses a headless browser to load pages the same way a real visitor would, so it can find links that only appear after scripts run.
+As it crawls, it keeps track of every internal link it discovers. Before archiving anything, it checks when the page was last saved. If the page was archived recently, it skips it. If it hasn’t been saved in a while, it sends it to the Wayback Machine.
+The goal is to make website preservation easier, faster, and less repetitive. Instead of manually checking pages or wasting time on duplicates, Wayback When handles the crawling, the decision‑making, and the archiving for you.
 
-Wayback When Finds every page: Uses a "headless" browser to crawl a website and discover all its internal links.
+## Scraper
+Wayback When uses a Selenium‑based scraper to explore a website and collect every link it can find. Instead of looking only at the raw HTML, it loads each page in a full browser environment, just like a real visitor. This allows it to find every link while remaining invisible to anti-scraping protections.
 
-Archives smartly: Checks if a page was saved recently to avoid wasting time on redundant backups based on user settings.
+## Archiver
+The archiver decides which pages actually need to be saved. For every link the scraper finds, it checks the Wayback Machine to see when the page was last archived. If the snapshot is recent, it skips it. If it’s old or missing, it sends a new save request. It also handles rate limits and retries so the process can run for long periods without manual supervision.
+
 # V1.1 Release
 
 # New Additions and Enhancements in V1.1
@@ -82,7 +88,8 @@ Archives smartly: Checks if a page was saved recently to avoid wasting time on r
   * Improved handling of WebDriver connection errors to avoid endless retries on unreachable branches.
   * Added proxy support for both `requests` sessions and Selenium driver options.
 
-
+* **Cleaner Output**
+  * Cleaner Terminal Output
 # Removed and Deprecated
 
 * **Removed or Replaced**
