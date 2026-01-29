@@ -25,6 +25,7 @@ The archiver decides which pages actually need to be saved. For every link the s
  ### Error Handling
  * Hid ``URLLIB3`` Error Messages behind ``DEBUG_MODE``.
  * Hid ``WebDriver`` Error Messages behind ``DEBUG_MODE``.
+ * Hid "Attempting to continue after automated wait..." behind ``DEBUG_MODE``.
 
  ### Bug Fixes
  * Fixed issue where ``Finished processing (Link) Discovered (number) links`` would be shown as ``DEBUG`` instead of ``INFO``.
