@@ -14,8 +14,12 @@ The archiver decides which pages actually need to be saved. For every link the s
 
 # New Additions and Enhancements in V1.2
 
+ ### Added Features
+ * Added Runtime to Archiving Summary
+
  ### Bug Fixes
  * Fixed issue where ``Finished processing (Link) Discovered (number) links`` would be shown as ``DEBUG`` instead of ``INFO``
+ * Fixed issue where URL Normalisation would add ``HTTP://" to FTP and RSYNC URLs, causing scraping issues
 
 
 ## Contributing
