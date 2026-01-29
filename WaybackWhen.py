@@ -72,9 +72,9 @@ SETTINGS = {
     "max_archiver_workers": 1,         # 0 = unlimited
     "max_archiving_queue_size": 0,     # 0 = Unlimited
     "max_crawler_workers": 10,         # 0 = Unlimited
+    "min_link_search_delay": 0.0,
     "max_link_search_delay": 5.0,
     "max_runtime": 0,                  # Maximum runtime in Seconds (0 = Unlimited)
-    "min_link_search_delay": 0.0,
     "proxies": [],                     # e.g. ['http://user:pass@ip:port']
     "retries": 3,                      # retries for crawling/archiving
     "safety_switch": False,            # Forces the script to slowdown to avoid detection
@@ -453,13 +453,13 @@ class Crawler:
                         log_message(
                             "WARNING",
                             f"CAPTCHA DETECTED for {base_url}. Waiting 5-10 seconds...",
-                            debug_only=False,
+                            debug_only=True,
                         )
                         time.sleep(random.uniform(5, 10))
                         log_message(
                             "INFO",
                             "Attempting to continue after automated wait...",
-                            debug_only=False,
+                            debug_only=True,
                         )
 
                 log_message(
