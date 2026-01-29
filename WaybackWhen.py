@@ -520,7 +520,7 @@ class Crawler:
                     )
 
                 log_message(
-                    "DEBUG",
+                    "INFO",
                     f"Finished processing {base_url}. Discovered {len(links)} links.",
                     debug_only=False,
                 )
@@ -915,12 +915,15 @@ class CrawlCoordinator:
     def add_initial_urls(self, urls):
         """Normalize and enqueue initial URLs for crawling and archiving."""
         for url in urls:
-            # If prefix is missing,  http:// as a default
-            if not (url.startswith("http://") or url.startswith("https://")):
+            parsed_url = urlparse(url)
+            # If scheme is empty, prepend http://
+            if not parsed_url.scheme:
                 url = "http://" + url
                 log_message("INFO", f"Prepending 'http://' to URL: {url}", debug_only=True)
 
-            if not url.startswith("http"):
+            # After ensuring a scheme exists, check for validity
+            parsed_url_with_scheme = urlparse(url)
+            if not parsed_url_with_scheme.scheme or not parsed_url_with_scheme.netloc:
                 log_message("WARNING", f"Invalid URL format for {url}. Skipping.", debug_only=False)
                 continue
 
@@ -969,6 +972,8 @@ class CrawlCoordinator:
             f"Starting main processing loop with {len(self.crawling_queue)} initial URLs.",
             debug_only=True,
         )
+
+        start_time = time.time()
 
         with concurrent.futures.ThreadPoolExecutor(
             max_workers=self.max_crawler_workers
@@ -1060,10 +1065,29 @@ class CrawlCoordinator:
                             except Exception as e:
                                 self.failed_count += 1
                                 log_message("ERROR", f"Error while archiving {url}: {e}", debug_only=True)
-                            break # Found and processed this archiving future
+                            break 
 
         # Finalize
         self.graph_builder.build_and_show()
+
+        end_time = time.time()
+        duration = end_time - start_time
+
+        # Format duration into days, hours, minutes, and seconds
+        days = int(duration // (24 * 3600))
+        remaining_seconds = duration % (24 * 3600)
+        hours = int(remaining_seconds // 3600)
+        remaining_seconds %= 3600
+        minutes = int(remaining_seconds // 60)
+        final_seconds = remaining_seconds % 60
+
+        duration_str_list = []
+        duration_str_list.append(f"{days}d")
+        duration_str_list.append(f"{hours}h")
+        duration_str_list.append(f"{minutes}m")
+        duration_str_list.append(f"{final_seconds:.2f}s")
+
+        duration_str = ' '.join(duration_str_list)
 
         print("\n========== Archiving Summary ==========")
         total = self.archived_count + self.skipped_count + self.failed_count
@@ -1071,6 +1095,7 @@ class CrawlCoordinator:
         print(f"URLs Archived: {self.archived_count}")
         print(f"URLs Skipped: {self.skipped_count}")
         print(f"URLs Failed: {self.failed_count}")
+        print(f"Total Run Time: {duration_str}")
         print("=======================================")
 
 # =========================
@@ -1082,7 +1107,7 @@ def main():
     clear_output(wait=True)
 
     target_urls_input = input(
-        "Enter URLs (comma-separated, e.g., https://notawebsite.org/, https://example.com/): "
+        "Enter URLs (comma separated, e.g., https://notawebsite.org/, example.com): "
 
     ).strip()
     initial_urls_raw = [
