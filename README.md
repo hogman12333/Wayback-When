@@ -16,11 +16,11 @@ The archiver decides which pages actually need to be saved. For every link the s
 
  ### Settings
  * Added a ``max_runtime`` setting
+ * ``SETTINGS`` have been sorted alphabetically
 
  ### Added Features
  * Added Runtime to Archiving Summary
  * Added Progress Bar to the Archival Messages
- * ``SETTINGS`` have been sorted alphabetically
 
  ### Error Handling
  * Hid ``URLLIB3`` Error Messages behind ``DEBUG_MODE``.
