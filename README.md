@@ -26,9 +26,10 @@ The archiver decides which pages actually need to be saved. For every link the s
  * Hid ``URLLIB3`` Error Messages behind ``DEBUG_MODE``.
  * Hid ``WebDriver`` Error Messages behind ``DEBUG_MODE``.
  * Hid "Attempting to continue after automated wait..." behind ``DEBUG_MODE``.
+ * Hid "CAPTCHA DETECTED for ``{base_url}``. Waiting 5-10 seconds..." behind ``DEBUG_MODE``.
 
  ### Bug Fixes
- * Fixed issue where ``Finished processing (Link) Discovered (number) links`` would be shown as ``DEBUG`` instead of ``INFO``.
+ * Fixed issue where "Finished processing ``{base_url}``. Discovered ``{len(links)}`` links." would be shown as ``DEBUG`` instead of ``INFO``.
  * Fixed issue where URL Normalisation would add ``HTTP://`` to FTP and RSYNC URLs, causing scraping issues.
 
  ### Miscellaneous
