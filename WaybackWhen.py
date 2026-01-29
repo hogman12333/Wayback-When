@@ -19,6 +19,7 @@ import warnings
 import random
 import os
 import logging
+import re # Import regex for parsing duration
 
 # Selenium imports
 from selenium import webdriver
@@ -62,21 +63,22 @@ class ConnectionRefusedForCrawlerError(Exception):
 # =========================
 
 SETTINGS = {
-    "archiving_cooldown": 90,          # days
-    "urls_per_minute_limit": 15,       # Wayback rate limit
-    "max_crawler_workers": 10,          # 0 = Unlimited
-    "retries": 3,                      # retries for crawling/archiving
-    "default_archiving_action": "N",   # 'n' normal, 'a' archive all, 's' skip all
-    "debug_mode": False,
-    "max_archiver_workers": 1,         # 0 = unlimited
-    "enable_visual_tree_generation": False,
-    "min_link_search_delay": 0.0,
-    "max_link_search_delay": 5.0,
-    "safety_switch": False,             # Forces the script to slowdown to avoid detection
-    "proxies": [],                     # e.g. ['http://user:pass@ip:port']
-    "max_archiving_queue_size": 0,     # 0 = Unlimited
     "allow_external_links": False,     # New setting: True to allow crawling external links
     "archive_timeout_seconds": 1200,    # seconds for archiving a single link
+    "archiving_cooldown": 90,          # days
+    "debug_mode": False,
+    "default_archiving_action": "N",   # 'n' normal, 'a' archive all, 's' skip all
+    "enable_visual_tree_generation": False,
+    "max_archiver_workers": 1,         # 0 = unlimited
+    "max_archiving_queue_size": 0,     # 0 = Unlimited
+    "max_crawler_workers": 10,          # 0 = Unlimited
+    "max_link_search_delay": 5.0,
+    "max_runtime": 10,                  # Maximum runtime in Seconds (0 = Unlimited)
+    "min_link_search_delay": 0.0,
+    "proxies": [],                     # e.g. ['http://user:pass@ip:port']
+    "retries": 3,                      # retries for crawling/archiving
+    "safety_switch": False,             # Forces the script to slowdown to avoid detection
+    "urls_per_minute_limit": 15,       # Wayback rate limit
 }
 
 # Thread-local storage (if needed later)
@@ -546,7 +548,7 @@ class Crawler:
                         "ERROR",
                         f"WebDriver error (Connection Refused) while crawling {base_url}: {e}. "
                         f"Skipping further crawling for this branch.",
-                        debug_only=True 
+                        debug_only=True
                     )
                     raise ConnectionRefusedForCrawlerError(base_url)
                 else:
@@ -983,6 +985,11 @@ class CrawlCoordinator:
         ) as archiver_executor:
 
             while True:
+                # Check for max runtime
+                if SETTINGS["max_runtime"] > 0 and (time.time() - start_time) > SETTINGS["max_runtime"]:
+                    log_message("INFO", f"Max runtime of {SETTINGS['max_runtime']} seconds reached. Stopping.", debug_only=False)
+                    break
+
                 # Submit new tasks from queues if workers are available
                 self._submit_crawl_tasks(crawler_executor)
                 self._submit_archive_tasks(archiver_executor)
