@@ -64,20 +64,20 @@ class ConnectionRefusedForCrawlerError(Exception):
 
 SETTINGS = {
     "allow_external_links": False,     # New setting: True to allow crawling external links
-    "archive_timeout_seconds": 1200,    # seconds for archiving a single link
+    "archive_timeout_seconds": 1200,   # seconds for archiving a single link
     "archiving_cooldown": 90,          # days
     "debug_mode": False,
     "default_archiving_action": "N",   # 'n' normal, 'a' archive all, 's' skip all
     "enable_visual_tree_generation": False,
     "max_archiver_workers": 1,         # 0 = unlimited
     "max_archiving_queue_size": 0,     # 0 = Unlimited
-    "max_crawler_workers": 10,          # 0 = Unlimited
+    "max_crawler_workers": 10,         # 0 = Unlimited
     "max_link_search_delay": 5.0,
     "max_runtime": 0,                  # Maximum runtime in Seconds (0 = Unlimited)
     "min_link_search_delay": 0.0,
     "proxies": [],                     # e.g. ['http://user:pass@ip:port']
     "retries": 3,                      # retries for crawling/archiving
-    "safety_switch": False,             # Forces the script to slowdown to avoid detection
+    "safety_switch": False,            # Forces the script to slowdown to avoid detection
     "urls_per_minute_limit": 15,       # Wayback rate limit
 }
 
@@ -888,6 +888,7 @@ class CrawlCoordinator:
         self.archived_count = 0
         self.skipped_count = 0
         self.failed_count = 0
+        self.total_links_to_archive = 0 # Initialize for progress bar
 
         self._resolve_worker_counts()
 
@@ -934,10 +935,11 @@ class CrawlCoordinator:
             root_domain = get_root_domain(urlparse(normalized_url).netloc)
 
             if normalized_url not in self.visited_urls:
-                log_message("INFO", f"Adding initial URL to queues: {normalized_url}", debug_only=False)
+                log_message("INFO", f"Starting with URLs: {normalized_url}", debug_only=False)
                 self.visited_urls.add(normalized_url)
                 self.crawling_queue.append((normalized_url, root_domain))
                 self.queue_for_archiving.append(normalized_url)
+        self.total_links_to_archive = len(self.queue_for_archiving) # Set initial total
 
     def _submit_crawl_tasks(self, executor):
         """Submit crawl tasks while respecting queue and skipped domains and worker limits."""
@@ -956,6 +958,7 @@ class CrawlCoordinator:
             future = executor.submit(self.crawler.crawl_single_page, url)
             self.crawling_futures_set.add((future, url, root_domain))
             log_message("INFO", f"Submitted crawl task for: {url}", debug_only=True)
+
     def _submit_archive_tasks(self, executor):
         """Submit archiving tasks for URLs in the archiving queue, respecting worker limits."""
         while (
@@ -1043,6 +1046,7 @@ class CrawlCoordinator:
                                         # Add to crawling queue with its own root domain context
                                         self.crawling_queue.append((link, link_root_domain))
                                         self.queue_for_archiving.append(link)
+                                        self.total_links_to_archive += 1 # Increment total for newly discovered links
                                         log_message("DEBUG", f"Branching to: {link_root_domain} via {link}", debug_only=True)
                             except ConnectionRefusedForCrawlerError:
                                 log_message("INFO", f"Marking branch {current_branch_root} as skipped due to connection refused.", debug_only=False)
@@ -1060,6 +1064,10 @@ class CrawlCoordinator:
                         if af_info[0] == future:
                             self.archiving_futures_set.remove(af_info)
                             url = af_info[1]
+                            
+                            status = "FAILED" # Default status in case of exception
+                            result_url = url # Default result_url
+
                             try:
                                 status, result_url = future.result()
                                 if status == "ARCHIVED":
@@ -1068,11 +1076,28 @@ class CrawlCoordinator:
                                     self.skipped_count += 1
                                 elif status == "FAILED":
                                     self.failed_count += 1
-                                log_message("INFO", f"[{status}] {result_url}", debug_only=False)
+                                
+                                processed = self.archived_count + self.skipped_count + self.failed_count
+                                progress_suffix = ""
+                                if self.total_links_to_archive > 0:
+                                    progress_percent = (processed / self.total_links_to_archive) * 100
+                                    progress_suffix = f" ({processed}/{self.total_links_to_archive} {progress_percent:.0f}%)"
+                                else:
+                                    progress_suffix = f" ({processed} links processed)"
+                                    
+                                log_message("INFO", f"[{status}] {result_url}{progress_suffix}", debug_only=False)
 
                             except Exception as e:
                                 self.failed_count += 1
-                                log_message("ERROR", f"Error while archiving {url}: {e}", debug_only=True)
+                                processed = self.archived_count + self.skipped_count + self.failed_count
+                                progress_suffix = ""
+                                if self.total_links_to_archive > 0:
+                                    progress_percent = (processed / self.total_links_to_archive) * 100
+                                    progress_suffix = f" ({processed}/{self.total_links_to_archive} {progress_percent:.0f}%)"
+                                else:
+                                    progress_suffix = f" ({processed} links processed)"
+                                    
+                                log_message("ERROR", f"Error while archiving {url}: {e}{progress_suffix}", debug_only=False)
                             break
 
         # Finalize
