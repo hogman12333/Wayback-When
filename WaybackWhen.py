@@ -18,6 +18,7 @@ import threading
 import warnings
 import random
 import os
+import logging
 
 # Selenium imports
 from selenium import webdriver
@@ -545,7 +546,7 @@ class Crawler:
                         "ERROR",
                         f"WebDriver error (Connection Refused) while crawling {base_url}: {e}. "
                         f"Skipping further crawling for this branch.",
-                        debug_only=False
+                        debug_only=True 
                     )
                     raise ConnectionRefusedForCrawlerError(base_url)
                 else:
@@ -553,7 +554,7 @@ class Crawler:
                         "WARNING",
                         f"Non-connection-refused WebDriver error while crawling {base_url}: {e}. "
                         f"Retrying ({retries - attempt - 1} attempts left).",
-                        debug_only=False,
+                        debug_only=True,
                     )
                 attempt += 1
                 time.sleep(random.uniform(5, 15))
@@ -1065,7 +1066,7 @@ class CrawlCoordinator:
                             except Exception as e:
                                 self.failed_count += 1
                                 log_message("ERROR", f"Error while archiving {url}: {e}", debug_only=True)
-                            break 
+                            break
 
         # Finalize
         self.graph_builder.build_and_show()
@@ -1105,6 +1106,10 @@ class CrawlCoordinator:
 def main():
     """Main function to orchestrate crawling and archiving."""
     clear_output(wait=True)
+
+    if not SETTINGS["debug_mode"]:
+        logging.getLogger('urllib3').setLevel(logging.CRITICAL)
+        logging.getLogger('urllib3.connectionpool').setLevel(logging.CRITICAL)
 
     target_urls_input = input(
         "Enter URLs (comma separated, e.g., https://notawebsite.org/, example.com): "
