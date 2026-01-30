@@ -73,8 +73,8 @@ SETTINGS = {
     "max_crawler_workers": 10,         # 0 = Unlimited
     "min_link_search_delay": 0.0,
     "max_link_search_delay": 5.0,
-    "max_crawl_runtime": 60,            # Maximum total crawling time in Seconds (0 = Unlimited)
-    "max_archive_runtime": 120,          # Maximum total archiving time in Seconds (0 = Unlimited)
+    "max_crawl_runtime": 0,            # Maximum total crawling time in Seconds (0 = Unlimited)
+    "max_archive_runtime": 0,          # Maximum total archiving time in Seconds (0 = Unlimited)
     "proxies": [],                     # e.g. ['http://user:pass@ip:port']
     "retries": 3,                      # retries for crawling/archiving
     "safety_switch": False,            # Forces the script to slowdown to avoid detection
