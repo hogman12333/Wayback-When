@@ -15,7 +15,8 @@ The archiver decides which pages actually need to be saved. For every link the s
 # New Additions and Enhancements in V1.2
 
  ### Settings
- * Added a ``max_runtime`` setting
+ * Added a ``max_crawl_runtime`` setting
+ * Added a ``max_archive_runtime`` setting
  * ``SETTINGS`` have been sorted alphabetically
 
  ### Added Features
