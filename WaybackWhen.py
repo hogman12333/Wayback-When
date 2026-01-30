@@ -73,7 +73,8 @@ SETTINGS = {
     "max_crawler_workers": 10,         # 0 = Unlimited
     "min_link_search_delay": 0.0,
     "max_link_search_delay": 5.0,
-    "max_runtime": 0,                  # Maximum runtime in Seconds (0 = Unlimited)
+    "max_crawl_runtime": 60,            # Maximum total crawling time in Seconds (0 = Unlimited)
+    "max_archive_runtime": 120,          # Maximum total archiving time in Seconds (0 = Unlimited)
     "proxies": [],                     # e.g. ['http://user:pass@ip:port']
     "retries": 3,                      # retries for crawling/archiving
     "safety_switch": False,            # Forces the script to slowdown to avoid detection
@@ -977,7 +978,11 @@ class CrawlCoordinator:
             debug_only=True,
         )
 
-        start_time = time.time()
+        overall_start_time = time.time() # This is for the total script runtime measurement
+        crawl_process_start_time = time.time()
+        archive_process_start_time = time.time()
+        crawling_enabled = True
+        archiving_enabled = True
 
         crawler_executor = None # Initialize to None
         archiver_executor = None # Initialize to None
@@ -987,31 +992,52 @@ class CrawlCoordinator:
             archiver_executor = concurrent.futures.ThreadPoolExecutor(max_workers=self.max_archiver_workers)
 
             while True:
-                # Check for max runtime
-                if SETTINGS["max_runtime"] > 0 and (time.time() - start_time) > SETTINGS["max_runtime"]:
-                    log_message("INFO", f"Max runtime of {SETTINGS['max_runtime']} seconds reached. Stopping.", debug_only=False)
-                    # Immediately shut down executors and cancel pending futures
-                    crawler_executor.shutdown(wait=False, cancel_futures=True)
-                    archiver_executor.shutdown(wait=False, cancel_futures=True)
+                current_time = time.time()
+
+                # Check for max crawl runtime
+                if crawling_enabled and SETTINGS["max_crawl_runtime"] > 0 and (current_time - crawl_process_start_time) > SETTINGS["max_crawl_runtime"]:
+                    log_message("INFO", f"Max crawling runtime of {SETTINGS['max_crawl_runtime']} seconds reached. Stopping new crawl tasks and cancelling active ones.", debug_only=False)
+                    crawling_enabled = False
+                    for future, url, root_domain in list(self.crawling_futures_set): # Iterate over a copy
+                        if future.running() or future.pending():
+                            future.cancel()
+                            log_message("DEBUG", f"Cancelled running/pending crawl task for {url}", debug_only=True)
+                    self.crawling_futures_set.clear() # Clear all crawl futures
+                    self.crawling_queue.clear() # Stop new submissions
+
+                # Check for max archive runtime
+                if archiving_enabled and SETTINGS["max_archive_runtime"] > 0 and (current_time - archive_process_start_time) > SETTINGS["max_archive_runtime"]:
+                    log_message("INFO", f"Max archiving runtime of {SETTINGS['max_archive_runtime']} seconds reached. Stopping new archive tasks and cancelling active ones.", debug_only=False)
+                    archiving_enabled = False
+                    for future, url in list(self.archiving_futures_set): # Iterate over a copy
+                        if future.running() or future.pending():
+                            future.cancel()
+                            log_message("DEBUG", f"Cancelled running/pending archive task for {url}", debug_only=True)
+                    self.archiving_futures_set.clear() # Clear all archive futures
+                    self.queue_for_archiving.clear() # Stop new submissions
+
+                # Submit new tasks from queues if workers are available and not disabled
+                if crawling_enabled:
+                    self._submit_crawl_tasks(crawler_executor)
+                if archiving_enabled:
+                    self._submit_archive_tasks(archiver_executor)
+
+                # Determine if all work is done or stopped by limits
+                all_crawling_done = (not crawling_enabled) or (not self.crawling_queue and not self.crawling_futures_set)
+                all_archiving_done = (not archiving_enabled) or (not self.queue_for_archiving and not self.archiving_futures_set)
+
+                if all_crawling_done and all_archiving_done:
+                    log_message("INFO", "All crawling and archiving tasks completed or stopped by runtime limits.", debug_only=False)
                     break
-
-                # Submit new tasks from queues if workers are available
-                self._submit_crawl_tasks(crawler_executor)
-                self._submit_archive_tasks(archiver_executor)
-
-                # Check if all queues are empty and all active futures are done
-                if not self.crawling_queue and not self.queue_for_archiving and \
-                   not self.crawling_futures_set and not self.archiving_futures_set:
-                    log_message("INFO", "All crawling and archiving tasks completed.", debug_only=False)
-                    break # All work is done
 
                 # Collect all active futures to wait on
                 all_active_futures = {f_info[0] for f_info in self.crawling_futures_set} | \
                                      {f_info[0] for f_info in self.archiving_futures_set}
 
                 if not all_active_futures:
-                    # This can happen if all workers are busy but more tasks are in queue,
-                    # or if there's a momentary lull before new tasks are submitted.
+                    # If there are no active futures but we haven't broken the loop, it means
+                    # either crawling_enabled/archiving_enabled is True but queues are empty (waiting for new input)
+                    # or both are disabled but there are no futures to process (already handled by break condition).
                     # Sleep briefly to avoid busy-waiting.
                     time.sleep(0.1)
                     continue
@@ -1030,6 +1056,11 @@ class CrawlCoordinator:
                     for cf_info in list(self.crawling_futures_set): # Iterate over a copy to allow modification
                         if cf_info[0] == future:
                             self.crawling_futures_set.remove(cf_info)
+                            if future.cancelled():
+                                log_message("DEBUG", f"Skipping cancelled crawl task.", debug_only=True)
+                                found_and_processed = True
+                                break
+
                             url, current_branch_root = cf_info[1], cf_info[2]
                             try:
                                 links_on_page, relationships_on_page = future.result()
@@ -1037,22 +1068,25 @@ class CrawlCoordinator:
                                 if SETTINGS["enable_visual_tree_generation"]:
                                     self.graph_builder.add_relationships(relationships_on_page)
 
-                                # Enqueue discovered links: Treat every link as a potential new branch
-                                for link in links_on_page:
-                                    if link not in self.visited_urls:
-                                        self.visited_urls.add(link)
+                                if crawling_enabled: # Only enqueue new links if crawling is still enabled
+                                    # Enqueue discovered links: Treat every link as a potential new branch
+                                    for link in links_on_page:
+                                        if link not in self.visited_urls:
+                                            self.visited_urls.add(link)
 
-                                        # Determine the root domain for this specific link
-                                        link_root_domain = get_root_domain(urlparse(link).netloc)
+                                            # Determine the root domain for this specific link
+                                            link_root_domain = get_root_domain(urlparse(link).netloc)
 
-                                        # Add to crawling queue with its own root domain context
-                                        self.crawling_queue.append((link, link_root_domain))
-                                        self.queue_for_archiving.append(link)
-                                        self.total_links_to_archive += 1 # Increment total for newly discovered links
-                                        log_message("DEBUG", f"Branching to: {link_root_domain} via {link}", debug_only=True)
+                                            # Add to crawling queue with its own root domain context
+                                            self.crawling_queue.append((link, link_root_domain))
+                                            self.queue_for_archiving.append(link)
+                                            self.total_links_to_archive += 1 # Increment total for newly discovered links
+                                            log_message("DEBUG", f"Branching to: {link_root_domain} via {link}", debug_only=True)
                             except ConnectionRefusedForCrawlerError:
                                 log_message("INFO", f"Marking branch {current_branch_root} as skipped due to connection refused.", debug_only=False)
                                 self.skipped_root_domains.add(current_branch_root)
+                            except concurrent.futures.CancelledError:
+                                log_message("DEBUG", f"Crawl task for {url} was cancelled.", debug_only=True)
                             except Exception as e:
                                 log_message("ERROR", f"Error while crawling {url}: {e}", debug_only=False)
                             found_and_processed = True
@@ -1065,6 +1099,10 @@ class CrawlCoordinator:
                     for af_info in list(self.archiving_futures_set):
                         if af_info[0] == future:
                             self.archiving_futures_set.remove(af_info)
+                            if future.cancelled():
+                                log_message("DEBUG", f"Skipping cancelled archive task.", debug_only=True)
+                                break
+
                             url = af_info[1]
 
                             status = "FAILED" # Default status in case of exception
@@ -1089,6 +1127,8 @@ class CrawlCoordinator:
 
                                 log_message("INFO", f"[{status}] {result_url}{progress_suffix}", debug_only=False)
 
+                            except concurrent.futures.CancelledError:
+                                log_message("DEBUG", f"Archive task for {url} was cancelled.", debug_only=True)
                             except Exception as e:
                                 self.failed_count += 1
                                 processed = self.archived_count + self.skipped_count + self.failed_count
@@ -1114,7 +1154,7 @@ class CrawlCoordinator:
         self.graph_builder.build_and_show()
 
         end_time = time.time()
-        duration = end_time - start_time
+        duration = end_time - overall_start_time
 
         # Format duration into days, hours, minutes, and seconds
         days = int(duration // (24 * 3600))
