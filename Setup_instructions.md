@@ -21,7 +21,7 @@ Navigate to your project directory and run:
 ```cmd
 pip install requests beautifulsoup4 waybackpy selenium webdriver-manager selenium-stealth networkx matplotlib ipython
 ```
-
+Debian: ```sudo apt install python3-requests python3-bs4 python3-selenium python3-networkx python3-matplotlib ipython3```
 ## 5. Run the Script
 ```cmd
 python WaybackWhen.py
