@@ -21,7 +21,7 @@ The archiver decides which pages actually need to be saved. For every link the s
 
  ### Added Features
  * Added Runtime to Archiving Summary
- * Added Progress Bar to the Archival Messages
+ * Added Progress Counter to the Archival Messages
 
  ### Error Handling
  * Hid ``urllib3`` Error Messages behind ``DEBUG_MODE``.
