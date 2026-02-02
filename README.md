@@ -12,32 +12,42 @@ The archiver decides which pages actually need to be saved. For every link the s
 
 # V1.2 Release
 
-# New Additions and Enhancements in V1.2
+## New Additions and Enhancements in V1.2
 
- ### Settings
- * Added a ``max_crawl_runtime`` setting
- * Added a ``max_archive_runtime`` setting
- * ``SETTINGS`` have been sorted alphabetically
+### Settings
+* Added a ``max_crawl_runtime`` setting  
+* Added a ``max_archive_runtime`` setting  
+* ``SETTINGS`` have been sorted alphabetically  
+* Increased ``retries`` from **3 → 5**  
+* Reduced ``archive_timeout_seconds`` from **1200s → 300s**  
+* Removed deprecated ``max_archiving_queue_size`` (fully deprecated)
 
- ### Added Features
- * Added Runtime to Archiving Summary
- * Added Progress Counter to the Archival Messages
+### Added Features
+* Added Runtime to Archiving Summary  
+* Added Progress Counter to the Archival Messages  
+* Added new global runtime limits: ``max_crawl_runtime`` and ``max_archive_runtime``  
+* Added ``logging`` import for future structured logging support
 
- ### Error Handling
- * Hid ``urllib3`` Error Messages behind ``DEBUG_MODE``.
- * Hid ``WebDriver`` Error Messages behind ``DEBUG_MODE``.
- * Hid "Attempting to continue after automated wait..." behind ``DEBUG_MODE``.
- * Hid "Failed to retrieve ``{base_url}`` after ``{retries}`` attempts." behind ``DEBUG_MODE``.
- * Hid "CAPTCHA DETECTED for ``{base_url}``. Waiting 5-10 seconds..." behind ``DEBUG_MODE``.
- * Archiving errors now fall under the ``retry`` variable
+### Error Handling
+* Hid ``urllib3`` Error Messages behind ``DEBUG_MODE``  
+* Hid ``WebDriver`` Error Messages behind ``DEBUG_MODE``  
+* Hid "Attempting to continue after automated wait..." behind ``DEBUG_MODE``  
+* Hid "Failed to retrieve ``{base_url}`` after ``{retries}`` attempts." behind ``DEBUG_MODE``  
+* Hid "CAPTCHA DETECTED for ``{base_url}``. Waiting 5–10 seconds..." behind ``DEBUG_MODE``  
+* Archiving errors now fall under the ``retry`` variable  
+* Improved timeout handling for archiving threads (now retries instead of immediate failure)
 
- ### Bug Fixes
- * Fixed issue where "Finished processing ``{base_url}``. Discovered ``{len(links)}`` links." would be shown as ``DEBUG`` instead of ``INFO``.
- * Fixed issue where URL Normalisation would add ``HTTP://`` to FTP and RSYNC URLs, causing scraping issues.
+### Bug Fixes
+* Fixed issue where "Finished processing ``{base_url}``. Discovered ``{len(links)}`` links." would be shown as ``DEBUG`` instead of ``INFO``  
+* Fixed issue where URL Normalisation would add ``HTTP://`` to FTP and RSYNC URLs, causing scraping issues  
+* Fixed archiving timeout logic so that a timeout no longer permanently blocks the thread  
+* Fixed inconsistent logging levels between crawler and archiver subsystems
 
- ### Miscellaneous
- * Changed message from ``Adding initial URL to queues:`` to ``Starting with URLs:``
- * Deprecated ``max_archiving_queue_size``
+### Miscellaneous
+* Changed message from ``Adding initial URL to queues:`` to ``Starting with URLs:``  
+* Deprecated ``max_archiving_queue_size`` (now fully removed)  
+* Minor internal refactors for clarity and consistency  
+* Improved internal comments and documentation for maintainability  
 
 ## Contributing
 
