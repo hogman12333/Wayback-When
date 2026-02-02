@@ -81,7 +81,7 @@ SETTINGS = {
     "urls_per_minute_limit": 15,       # Wayback rate limit
 }
 
-# Thread-local storage 
+# Thread-local storage
 _thread_local = threading.local()
 
 # Lock to ensure only one CAPTCHA prompt is active at a time
@@ -90,7 +90,7 @@ captcha_prompt_lock = threading.Lock()
 # Archive rate limiting
 archive_lock = threading.Lock()
 last_archive_time = 0.0  # global timestamp of last archive request
-rate_limit_active_until_time = 0.0 
+rate_limit_active_until_time = 0.0
 
 # Minimum delay between archive requests
 MIN_ARCHIVE_DELAY_SECONDS = 60 / SETTINGS["urls_per_minute_limit"]
@@ -533,7 +533,7 @@ class Crawler:
                 log_message(
                     "WARNING",
                     f"Page load timed out for {base_url}. Retrying ({retries - attempt - 1} attempts left).",
-                    debug_only=False,
+                    debug_only=True,
                 )
                 attempt += 1
                 time.sleep(random.uniform(5, 15))
@@ -565,7 +565,7 @@ class Crawler:
                     "ERROR",
                     f"Unexpected error while crawling {base_url}: {e}. "
                     f"Retrying ({retries - attempt - 1} attempts left).",
-                    debug_only=False,
+                    debug_only=True,
                 )
                 attempt += 1
                 time.sleep(random.uniform(2, 10))
@@ -573,7 +573,7 @@ class Crawler:
         log_message(
             "ERROR",
             f"Failed to retrieve {base_url} after {retries} attempts.",
-            debug_only=False,
+            debug_only=True,
         )
         return set(), []
 
@@ -777,7 +777,7 @@ class Archiver:
                     "INFO",
                     f"Archiving {link} timed out after {SETTINGS['archive_timeout_seconds']} seconds. "
                     f"Retrying ({retries - 1} attempts left).",
-                    debug_only=False
+                    debug_only=True
                 )
                 retries -= 1
                 if retries == 0:
@@ -1005,7 +1005,7 @@ class CrawlCoordinator:
                     log_message("INFO", f"Max crawling runtime of {SETTINGS['max_crawl_runtime']} seconds reached. Stopping new crawl tasks and cancelling active ones.", debug_only=False)
                     crawling_enabled = False
                     for future, url, root_domain in list(self.crawling_futures_set): # Iterate over a copy
-                        if future.running() or future.pending():
+                        if not future.done():
                             future.cancel()
                             log_message("DEBUG", f"Cancelled running/pending crawl task for {url}", debug_only=True)
                     self.crawling_futures_set.clear() # Clear all crawl futures
@@ -1016,7 +1016,7 @@ class CrawlCoordinator:
                     log_message("INFO", f"Max archiving runtime of {SETTINGS['max_archive_runtime']} seconds reached. Stopping new archive tasks and cancelling active ones.", debug_only=False)
                     archiving_enabled = False
                     for future, url in list(self.archiving_futures_set): # Iterate over a copy
-                        if future.running() or future.pending():
+                        if not future.done():
                             future.cancel()
                             log_message("DEBUG", f"Cancelled running/pending archive task for {url}", debug_only=True)
                     self.archiving_futures_set.clear() # Clear all archive futures
@@ -1145,7 +1145,7 @@ class CrawlCoordinator:
                                 else:
                                     progress_suffix = f" ({processed} links processed)"
 
-                                log_message("ERROR", f"Error while archiving {url}: {e}{progress_suffix}", debug_only=False)
+                                log_message("ERROR", f"Error while archiving {url}: {e}{progress_suffix}", debug_only=True)
                             break
 
         finally:
