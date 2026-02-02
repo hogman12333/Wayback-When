@@ -76,12 +76,12 @@ SETTINGS = {
     "max_crawl_runtime": 0,            # Maximum total crawling time in Seconds (0 = Unlimited)
     "max_archive_runtime": 0,          # Maximum total archiving time in Seconds (0 = Unlimited)
     "proxies": [],                     # e.g. ['http://user:pass@ip:port']
-    "retries": 3,                      # retries for crawling/archiving
+    "retries": 5,                      # retries for crawling/archiving
     "safety_switch": False,            # Forces the script to slowdown to avoid detection
     "urls_per_minute_limit": 15,       # Wayback rate limit
 }
 
-# Thread-local storage (if needed later)
+# Thread-local storage 
 _thread_local = threading.local()
 
 # Lock to ensure only one CAPTCHA prompt is active at a time
@@ -90,7 +90,7 @@ captcha_prompt_lock = threading.Lock()
 # Archive rate limiting
 archive_lock = threading.Lock()
 last_archive_time = 0.0  # global timestamp of last archive request
-rate_limit_active_until_time = 0.0 # New global timestamp for reactive rate limiting
+rate_limit_active_until_time = 0.0 
 
 # Minimum delay between archive requests
 MIN_ARCHIVE_DELAY_SECONDS = 60 / SETTINGS["urls_per_minute_limit"]
@@ -775,10 +775,16 @@ class Archiver:
             if archive_thread.is_alive():
                 log_message(
                     "INFO",
-                    f"Archiving {link} timed out after {SETTINGS['archive_timeout_seconds']} seconds. Skipping this attempt.",
+                    f"Archiving {link} timed out after {SETTINGS['archive_timeout_seconds']} seconds. "
+                    f"Retrying ({retries - 1} attempts left).",
                     debug_only=False
                 )
-                return "FAILED", link # Immediately return FAILED on timeout
+                retries -= 1
+                if retries == 0:
+                    return "FAILED", link
+                else:
+                    time.sleep(random.uniform(5, 10)) # Add a small delay before retry
+                    continue # Continue to the next iteration of the while loop
             else:
                 # The thread completed, check its result
                 if archive_result and archive_result[0] is True:
@@ -789,7 +795,7 @@ class Archiver:
                     rate_limit_keyword = (
                         "Save request refused by the server. Save Page Now limits saving 15 URLs per minutes."
                     )
-                    retries -= 1
+                    retries -= 1 # Decrement here for all exceptions
                     if rate_limit_keyword in error_message and retries > 0:
                         with archive_lock: # Protect update to global rate_limit_active_until_time
                             log_message(
@@ -808,7 +814,7 @@ class Archiver:
                             f"Could not save {link}: {e}. Retrying ({retries} attempts left)...",
                             debug_only=True
                         )
-                        time.sleep(2)
+                        time.sleep(random.uniform(2, 5)) # Small sleep
                     else:
                         return "FAILED", link # Return status and URL
                 else:
@@ -818,9 +824,9 @@ class Archiver:
                         f"Archiving thread for {link} finished unexpectedly without result. Retrying ({retries} attempts left)...",
                         debug_only=True
                     )
-                    time.sleep(2)
+                    time.sleep(random.uniform(2, 5)) # Small sleep
 
-        return "FAILED", link # Return status and URL
+        return "FAILED", link # If loop finishes and hasn't returned, it means retries ran out
 
 
 # =========================
