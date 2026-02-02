@@ -28,6 +28,7 @@ The archiver decides which pages actually need to be saved. For every link the s
  * Hid ``WebDriver`` Error Messages behind ``DEBUG_MODE``.
  * Hid "Attempting to continue after automated wait..." behind ``DEBUG_MODE``.
  * Hid "CAPTCHA DETECTED for ``{base_url}``. Waiting 5-10 seconds..." behind ``DEBUG_MODE``.
+ * Archving errors now fall under the retry variable
 
  ### Bug Fixes
  * Fixed issue where "Finished processing ``{base_url}``. Discovered ``{len(links)}`` links." would be shown as ``DEBUG`` instead of ``INFO``.
