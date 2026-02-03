@@ -1,3 +1,5 @@
+# These are WIP, Please Execute with caution
+
 # Windows Setup Guide
 
 ## 1. Install Python
@@ -21,69 +23,17 @@ Navigate to your project directory and run:
 ```cmd
 pip install requests beautifulsoup4 waybackpy selenium webdriver-manager selenium-stealth networkx matplotlib ipython
 ```
-Debian: ```sudo apt install python3-requests python3-bs4 python3-selenium python3-networkx python3-matplotlib ipython3```
 ## 5. Run the Script
 ```cmd
 python WaybackWhen.py
 ```
-
+Debian/Ubuntu
 ---
-
-# Linux Setup Guide
-
-## 1. Install Python
-Check if Python is installed:
-```bash
-python3 --version
-pip3 --version
+```cmd 
+sudo apt update && sudo apt install -y python3 python3-pip wget unzip gnupg ca-certificates fonts-liberation libnss3 libxss1 libasound2 libatk1.0-0 libatk-bridge2.0-0 libgtk-3-0 libx11-xcb1 libxcomposite1 libxrandr2 libgbm1 && wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | sudo apt-key add - && sudo sh -c 'echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" > /etc/apt/sources.list.d/google-chrome.list' && sudo apt update && sudo apt install -y google-chrome-stable && sudo pip3 install --upgrade pip && sudo pip3 install selenium webdriver-manager waybackpy beautifulsoup4 requests networkx matplotlib selenium-stealth | source venv/bin/activate | Python3 WaybackWhen.py
 ```
-
-If missing:
-
-**Debian/Ubuntu:**
-```bash
-sudo apt install python3 python3-pip 
-```
-
-**Fedora/RHEL:**
-```bash
-sudo dnf install python3 python3-pip
-```
-
-## 2. Install Google Chrome
-
-### Debian/Ubuntu
-```bash
-wget https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
-sudo apt install ./google-chrome-stable_current_amd64.deb -y
-rm google-chrome-stable_current_amd64.deb
-google-chrome --version
-```
-
-### Fedora/RHEL
-```bash
-sudo dnf install fedora-workstation-repositories -y   # Fedora only
-sudo dnf config-manager --set-enabled google-chrome   # Fedora only
-# RHEL/CentOS users must ensure google-chrome.repo exists in /etc/yum.repos.d/
-sudo dnf install google-chrome-stable -y
-google-chrome --version
-```
-
-## 3. ChromeDriver (Automatic)
-- No manual ChromeDriver installation needed.
-- webdriver‑manager handles driver downloads automatically.
-
-## 4. Install Required Python Packages
-```bash
-pip3 install requests beautifulsoup4 waybackpy selenium webdriver-manager selenium-stealth networkx matplotlib ipython
-```
-
-Optional verification:
-```bash
-python3 -c import requests, bs4, waybackpy, selenium, webdriver_manager, selenium_stealth, networkx, matplotlib ipython
-```
-
-## 5. Run the Script
-```bash
-python3 WaybackWhen.py
+Arch
+---
+``` cmd
+sudo pacman -Syu --noconfirm && sudo pacman -S --noconfirm --needed python python-pip chromium chromedriver wget unzip ca-certificates libnss libxss alsa-lib atk atk-bridge gtk3 libx11 libxcomposite libxrandr libgbm liberation-fonts && sudo pip3 install --upgrade pip && sudo pip3 install selenium webdriver-manager waybackpy beautifulsoup4 requests networkx matplotlib selenium-stealth
 ```
