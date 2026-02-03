@@ -30,7 +30,13 @@ python WaybackWhen.py
 Debian/Ubuntu
 ---
 ```cmd 
-sudo apt update && sudo apt install -y python3 python3-pip wget unzip gnupg ca-certificates fonts-liberation libnss3 libxss1 libasound2 libatk1.0-0 libatk-bridge2.0-0 libgtk-3-0 libx11-xcb1 libxcomposite1 libxrandr2 libgbm1 && wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | sudo apt-key add - && sudo sh -c 'echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" > /etc/apt/sources.list.d/google-chrome.list' && sudo apt update && sudo apt install -y google-chrome-stable && sudo pip3 install --upgrade pip && sudo pip3 install selenium webdriver-manager waybackpy beautifulsoup4 requests networkx matplotlib selenium-stealth | source venv/bin/activate | Python3 WaybackWhen.py
+sudo apt update && sudo apt install -y python3 python3-pip wget unzip gnupg ca-certificates fonts-liberation libnss3 libxss1 libasound2 libatk1.0-0 libatk-bridge2.0-0 libgtk-3-0 libx11-xcb1 libxcomposite1 libxrandr2 libgbm1 && wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | sudo apt-key add - && sudo sh -c 'echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" > /etc/apt/sources.list.d/google-chrome.list' && sudo apt update && sudo apt install -y google-chrome-stable && sudo pip3 install --upgrade pip && sudo pip3 install selenium webdriver-manager waybackpy beautifulsoup4 requests networkx matplotlib selenium-stealth 
+```
+```cmd
+source venv/bin/activate
+```
+```cmd
+Python3 WaybackWhen.py
 ```
 Arch
 ---
