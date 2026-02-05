@@ -36,7 +36,7 @@ sudo apt update && sudo apt install -y python3 python3-pip wget unzip gnupg ca-c
 source venv/bin/activate
 ```
 ```cmd
-Python3 WaybackWhen.py
+python3 WaybackWhen.py
 ```
 Arch
 ---
