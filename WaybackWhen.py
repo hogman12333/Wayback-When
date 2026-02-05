@@ -19,7 +19,6 @@ import warnings
 import random
 import os
 import logging
-import re # Import regex for parsing duration
 
 # Selenium imports
 from selenium import webdriver
@@ -44,9 +43,6 @@ except ImportError:
 warnings.filterwarnings("ignore", category=XMLParsedAsHTMLWarning)
 
 
-# =========================
-# Custom Exceptions
-# =========================
 
 class CaptchaDetectedError(Exception):
     """Raised when a CAPTCHA is detected on a page."""
@@ -57,11 +53,11 @@ class ConnectionRefusedForCrawlerError(Exception):
     """Raised when a connection is refused for a given URL branch."""
     pass
 
-
-# =========================
-# Settings
-# =========================
-
+'''
+=========================
+Settings
+=========================
+'''
 SETTINGS = {
     "allow_external_links": False,     # New setting: True to allow crawling external links
     "archive_timeout_seconds": 1200,   # seconds for archiving a single link
@@ -96,10 +92,10 @@ rate_limit_active_until_time = 0.0
 MIN_ARCHIVE_DELAY_SECONDS = 60 / SETTINGS["urls_per_minute_limit"]
 
 
-# =========================
-# User-Agent / Stealth Pools
-# =========================
-
+'''=========================
+User-Agent / Stealth Pools
+=========================
+'''
 OS_TYPES = [
     "Windows NT 10.0; Win64; x64",
     "Windows NT 6.3; Win64; x64",
@@ -149,11 +145,11 @@ STEALTH_RENDERERS = [
     "Metal",
 ]
 
-
-# =========================
-# Irrelevant Extensions / Paths
-# =========================
-
+'''
+=========================
+Irrelevant Extensions / Paths
+=========================
+'''
 IRRELEVANT_EXTENSIONS = (
     ".3g2", ".3gp", ".7z", ".aac", ".accdb", ".ace", ".aif", ".aiff", ".ai",
     ".apk", ".arj", ".arw", ".asm", ".azw3", ".bak", ".bash", ".bin", ".blend",
@@ -193,11 +189,11 @@ IRRELEVANT_PATH_SEGMENTS = (
     "/img/",
 )
 
-
-# =========================
-# Logging
-# =========================
-
+'''
+=========================
+Logging
+=========================
+'''
 def log_message(level: str, message: str, debug_only: bool = False) -> None:
     """Standardized logging function."""
     if debug_only and not SETTINGS["debug_mode"]:
@@ -205,11 +201,11 @@ def log_message(level: str, message: str, debug_only: bool = False) -> None:
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     print(f"[{timestamp}][{level.upper()}] {message}")
 
-
-# =========================
-# Utility Functions
-# =========================
-
+'''
+=========================
+Utility Functions
+=========================
+'''
 def generate_random_user_agent() -> str:
     """Generate a random realistic User-Agent string."""
     os_part = random.choice(OS_TYPES)
@@ -298,11 +294,11 @@ def redact_proxy(proxy: str) -> str:
         return urlunparse((parsed.scheme, netloc, "", "", "", ""))
     return proxy
 
-
-# =========================
-# HTTP Session Factory
-# =========================
-
+'''
+=========================
+HTTP Session
+=========================
+'''
 retry_strategy = Retry(
     total=5,
     backoff_factor=1,
@@ -325,11 +321,11 @@ def get_requests_session() -> requests.Session:
 
     return session
 
-
-# =========================
-# WebDriver Manager
-# =========================
-
+'''
+=========================
+WebDriver Manager
+=========================
+'''
 class WebDriverManager:
     """Encapsulates Selenium WebDriver creation and teardown."""
 
@@ -385,11 +381,11 @@ class WebDriverManager:
         except Exception:
             pass
 
-
-# =========================
-# Crawler
-# =========================
-
+'''
+=========================
+Crawler
+=========================
+'''
 class Crawler:
     """Responsible for crawling pages using Selenium and extracting internal links."""
 
@@ -631,11 +627,11 @@ class Crawler:
         finally:
             self.webdriver_manager.destroy_driver(driver)
 
-
-# =========================
-# Archiver
-# =========================
-
+'''
+=========================
+Archiver
+=========================
+'''
 class Archiver:
     """Handles Wayback Machine archiving with cooldown and rate limiting."""
 
@@ -828,11 +824,11 @@ class Archiver:
 
         return "FAILED", link # If loop finishes and hasn't returned, it means retries ran out
 
-
-# =========================
-# Visual Graph Builder
-# =========================
-
+'''
+=========================
+  Visual Graph Builder
+=========================
+'''
 class VisualGraphBuilder:
     """Builds and optionally displays a link graph using networkx."""
 
@@ -869,10 +865,11 @@ class VisualGraphBuilder:
         plt.tight_layout()
         plt.show()
 
-
-# =========================
-# Crawl Coordinator
-# =========================
+'''
+=========================
+   Crawl Coordinator
+=========================
+'''
 
 class CrawlCoordinator:
     """Coordinates crawling and archiving with concurrency and queues."""
@@ -894,7 +891,7 @@ class CrawlCoordinator:
         self.archived_count = 0
         self.skipped_count = 0
         self.failed_count = 0
-        self.total_links_to_archive = 0 # Initialize for progress bar
+        self.total_links_to_archive = 0
 
         self._resolve_worker_counts()
 
@@ -990,8 +987,8 @@ class CrawlCoordinator:
         crawling_enabled = True
         archiving_enabled = True
 
-        crawler_executor = None # Initialize to None
-        archiver_executor = None # Initialize to None
+        crawler_executor = None
+        archiver_executor = None
 
         try:
             crawler_executor = concurrent.futures.ThreadPoolExecutor(max_workers=self.max_crawler_workers)
@@ -1009,9 +1006,8 @@ class CrawlCoordinator:
                             future.cancel()
                             log_message("DEBUG", f"Cancelled running/pending crawl task for {url}", debug_only=True)
                     self.crawling_futures_set.clear() # Clear all crawl futures
-                    self.crawling_queue.clear() # Stop new submissions
+                    self.crawling_queue.clear()
 
-                # Check for max archive runtime
                 if archiving_enabled and SETTINGS["max_archive_runtime"] > 0 and (current_time - archive_process_start_time) > SETTINGS["max_archive_runtime"]:
                     log_message("INFO", f"Max archiving runtime of {SETTINGS['max_archive_runtime']} seconds reached. Stopping new archive tasks and cancelling active ones.", debug_only=False)
                     archiving_enabled = False
@@ -1020,7 +1016,7 @@ class CrawlCoordinator:
                             future.cancel()
                             log_message("DEBUG", f"Cancelled running/pending archive task for {url}", debug_only=True)
                     self.archiving_futures_set.clear() # Clear all archive futures
-                    self.queue_for_archiving.clear() # Stop new submissions
+                    self.queue_for_archiving.clear()
 
                 # Submit new tasks from queues if workers are available and not disabled
                 if crawling_enabled:
@@ -1028,7 +1024,6 @@ class CrawlCoordinator:
                 if archiving_enabled:
                     self._submit_archive_tasks(archiver_executor)
 
-                # Determine if all work is done or stopped by limits
                 all_crawling_done = (not crawling_enabled) or (not self.crawling_queue and not self.crawling_futures_set)
                 all_archiving_done = (not archiving_enabled) or (not self.queue_for_archiving and not self.archiving_futures_set)
 
@@ -1041,10 +1036,12 @@ class CrawlCoordinator:
                                      {f_info[0] for f_info in self.archiving_futures_set}
 
                 if not all_active_futures:
-                    # If there are no active futures but we haven't broken the loop, it means
-                    # either crawling_enabled/archiving_enabled is True but queues are empty (waiting for new input)
-                    # or both are disabled but there are no futures to process (already handled by break condition).
-                    # Sleep briefly to avoid busy-waiting.
+                    '''
+                    If there are no active futures but we haven't broken the loop, it means
+                    either crawling_enabled/archiving_enabled is True but queues are empty (waiting for new input)
+                    or both are disabled but there are no futures to process (already handled by break condition).
+                    Sleep briefly to avoid busy-waiting.
+                    '''
                     time.sleep(0.1)
                     continue
 
@@ -1074,7 +1071,7 @@ class CrawlCoordinator:
                                 if SETTINGS["enable_visual_tree_generation"]:
                                     self.graph_builder.add_relationships(relationships_on_page)
 
-                                if crawling_enabled: # Only enqueue new links if crawling is still enabled
+                                if crawling_enabled: # Only enqueue new links if crawling is stilll enabled
                                     # Enqueue discovered links: Treat every link as a potential new branch
                                     for link in links_on_page:
                                         if link not in self.visited_urls:
@@ -1086,7 +1083,7 @@ class CrawlCoordinator:
                                             # Add to crawling queue with its own root domain context
                                             self.crawling_queue.append((link, link_root_domain))
                                             self.queue_for_archiving.append(link)
-                                            self.total_links_to_archive += 1 # Increment total for newly discovered links
+                                            self.total_links_to_archive += 1
                                             log_message("DEBUG", f"Branching to: {link_root_domain} via {link}", debug_only=True)
                             except ConnectionRefusedForCrawlerError:
                                 log_message("INFO", f"Marking branch {current_branch_root} as skipped due to connection refused.", debug_only=False)
@@ -1156,7 +1153,6 @@ class CrawlCoordinator:
                 archiver_executor.shutdown(wait=True)
             log_message("INFO", "Executors shut down.", debug_only=True)
 
-        # Finalize
         self.graph_builder.build_and_show()
 
         end_time = time.time()
@@ -1186,10 +1182,11 @@ class CrawlCoordinator:
         print(f"URLs Failed: {self.failed_count}")
         print(f"Total Run Time: {duration_str}")
         print("=======================================")
-
-# =========================
-# Main Entry Point
-# =========================
+'''
+=========================
+          Main
+=========================
+'''
 
 def main():
     """Main function to orchestrate crawling and archiving."""
