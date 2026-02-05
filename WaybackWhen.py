@@ -75,6 +75,8 @@ SETTINGS = {
     "retries": 5,                      # retries for crawling/archiving
     "safety_switch": False,            # Forces the script to slowdown to avoid detection
     "urls_per_minute_limit": 15,       # Wayback rate limit
+    "restrict_sideways_crawling": False, # True to restrict crawling to sub-paths of the initial URL
+    "restrict_backwards_crawling": True, # True to restrict crawling from going 'up' the path structure
 }
 
 # Thread-local storage
@@ -151,27 +153,33 @@ Irrelevant Extensions / Paths
 =========================
 '''
 IRRELEVANT_EXTENSIONS = (
-    ".3g2", ".3gp", ".7z", ".aac", ".accdb", ".ace", ".aif", ".aiff", ".ai",
-    ".apk", ".arj", ".arw", ".asm", ".azw3", ".bak", ".bash", ".bin", ".blend",
-    ".bmp", ".bz2", ".cab", ".cache", ".c", ".cso", ".conf", ".cpp", ".cr2",
-    ".crt", ".cs", ".csv", ".dat", ".dae", ".deb", ".dmg", ".doc", ".docx",
-    ".drv", ".dxf", ".dwg", ".eml", ".eps", ".epub", ".exe", ".fbx", ".fish",
-    ".flac", ".flv", ".fon", ".gb", ".gba", ".gif", ".go", ".gz", ".h", ".har",
-    ".hpp", ".ics", ".ico", ".igs", ".img", ".ini", ".iso", ".java", ".jpeg",
-    ".jpg", ".js", ".json", ".key", ".kt", ".kts", ".lock", ".log", ".lua",
-    ".lz", ".lzma", ".m", ".map", ".max", ".mdb", ".mid", ".midi", ".mkv",
-    ".mobi", ".mov", ".mp3", ".mp4", ".mpg", ".mpeg", ".msg", ".msi", ".msm",
-    ".msp", ".nef", ".nes", ".obj", ".odp", ".ods", ".odt", ".ogg", ".old",
-    ".opus", ".orf", ".otf", ".pak", ".pcap", ".pcapng", ".pem", ".pdf", ".php",
-    ".pl", ".ply", ".png", ".ppt", ".pptx", ".prn", ".ps", ".py", ".qbb", ".qbw",
-    ".qfx", ".rar", ".rb", ".rm", ".rmvb", ".rom", ".rpm", ".rs", ".rtf", ".r",
-    ".rfa", ".rvt", ".s", ".sav", ".sh", ".sit", ".sitx", ".skp", ".so",
-    ".sqlite", ".sqlite3",
-    ".stl", ".step", ".stp", ".sub", ".swift", ".sys",
-    ".tar", ".temp", ".tif", ".tiff", ".tmp", ".toml", ".tsv", ".ttf", ".uue",
-    ".vhd", ".vhdx", ".vmdk", ".vtt", ".wav", ".wbmp", ".webm", ".webp", ".wma",
-    ".woff", ".woff2", ".wps", ".wmv", ".xcf", ".xls", ".xlsx", ".xml", ".xz",
-    ".yaml", ".yml", ".z", ".zip", ".zsh",
+    ".3g2", ".3gp", ".7z", ".aac", ".accdb", ".ace", ".aif",
+    ".aiff", ".ai", ".apk", ".arj", ".arw", ".asm", ".azw3",
+    ".bak", ".bash", ".bin", ".blend", ".bmp", ".bz2", ".cab",
+    ".cache", ".c", ".cso", ".conf", ".cpp", ".cr2", ".crt",
+    ".cs", ".csv", ".dat", ".dae", ".deb", ".dmg", ".doc",
+    ".docx", ".drv", ".dxf", ".dwg", ".eml", ".eps", ".epub",
+    ".exe", ".fbx", ".fish", ".flac", ".flv", ".fon", ".gb",
+    ".gba", ".gif", ".go", ".gz", ".h", ".har", ".hpp",
+    ".ics", ".ico", ".igs", ".img", ".ini", ".iso", ".java",
+    ".jpeg", ".jpg", ".js", ".json", ".key", ".kt", ".kts",
+    ".lock", ".log", ".lua", ".lz", ".lzma", ".m", ".map",
+    ".max", ".mdb", ".mid", ".midi", ".mkv", ".mobi", ".mov",
+    ".mp3", ".mp4", ".mpg", ".mpeg", ".msg", ".msi", ".msm",
+    ".msp", ".nef", ".nes", ".obj", ".odp", ".ods", ".odt",
+    ".ogg", ".old", ".opus", ".orf", ".otf", ".pak", ".pcap",
+    ".pcapng", ".pem", ".pdf", ".php", ".pl", ".ply", ".png",
+    ".ppt", ".pptx", ".prn", ".ps", ".py", ".qbb", ".qbw",
+    ".qfx", ".rar", ".rb", ".rm", ".rmvb", ".rom", ".rpm",
+    ".rs", ".rtf", ".r", ".rfa", ".rvt", ".s", ".sav",
+    ".sh", ".sit", ".sitx", ".skp", ".so", ".sqlite",
+    ".sqlite3", ".stl", ".step", ".stp", ".sub", ".swift",
+    ".sys", ".tar", ".temp", ".tif", ".tiff", ".tmp",
+    ".toml", ".tsv", ".ttf", ".uue", ".vhd", ".vhdx",
+    ".vmdk", ".vtt", ".wav", ".wbmp", ".webm", ".webp",
+    ".wma", ".woff", ".woff2", ".wps", ".wmv", ".xcf",
+    ".xls", ".xlsx", ".xml", ".xz", ".yaml", ".yml",
+    ".z", ".zip", ".zsh",
 )
 
 IRRELEVANT_PATH_SEGMENTS = (
@@ -392,7 +400,7 @@ class Crawler:
     def __init__(self, webdriver_manager: WebDriverManager) -> None:
         self.webdriver_manager = webdriver_manager
 
-    def _get_links_from_page_content(self, base_url: str, driver: webdriver.Chrome):
+    def _get_links_from_page_content(self, base_url: str, driver: webdriver.Chrome, initial_url_path: str):
         """Core logic to load a page and extract internal links."""
         links = set()
         relationships_on_page = []
@@ -484,15 +492,37 @@ class Crawler:
                     link_root_domain = get_root_domain(link_netloc)
 
                     clean_url = normalize_url(full_url)
+                    clean_url_path = urlparse(clean_url).path
 
-                    if (
-                        (link_root_domain == base_root_domain or SETTINGS["allow_external_links"])
-                        and not is_irrelevant_link(clean_url)
-                    ):
+                    is_valid_domain = (link_root_domain == base_root_domain or SETTINGS["allow_external_links"])
+                    is_not_irrelevant_extension = not is_irrelevant_link(clean_url)
+
+                    passes_sideways_restriction = True
+                    if SETTINGS["restrict_sideways_crawling"]:
+                        # Ensure initial_url_path ends with '/', for consistent startswith behavior
+                        effective_initial_path = initial_url_path if initial_url_path.endswith('/') else initial_url_path + '/'
+                        passes_sideways_restriction = clean_url_path.startswith(effective_initial_path)
+
+                    passes_backwards_restriction = True
+                    if SETTINGS["restrict_backwards_crawling"]:
+                        # A link is considered "backwards" if its path is a strict prefix of the initial_url_path
+                        # or if it's the root path of the domain and initial_url_path is not the root path.
+                        if initial_url_path != '/': # Only apply if initial path is not already the root
+                            if clean_url_path == '/' or initial_url_path.startswith(clean_url_path + '/') : # A.B vs A.B.C or A vs A.B
+                                # Check if clean_url_path is a parent directory of initial_url_path
+                                # Example: initial_url_path = /a/b/c, clean_url_path = /a/b
+                                # or initial_url_path = /a/b, clean_url_path = /a
+                                # We also consider going to the root '/' from a non-root initial_url_path as 'backwards'
+                                if clean_url_path == '/' and initial_url_path != '/':
+                                    passes_backwards_restriction = False
+                                elif initial_url_path.startswith(clean_url_path + '/'):
+                                    passes_backwards_restriction = False
+
+                    if is_valid_domain and is_not_irrelevant_extension and passes_sideways_restriction and passes_backwards_restriction:
                         log_message(
                             "INFO",
                             f"Discovered internal link: {clean_url} "
-                            f"(Root domain: {link_root_domain})",
+                            f" (Root domain: {link_root_domain})",
                             debug_only=True
                         )
                         links.add(clean_url)
@@ -500,9 +530,13 @@ class Crawler:
                             relationships_on_page.append((base_url, clean_url))
                     else:
                         skip_reason = []
-                        if link_root_domain != base_root_domain and not SETTINGS["allow_external_links"]:
+                        if not is_valid_domain:
                             skip_reason.append(f"External Domain ({link_root_domain} != {base_root_domain})")
-                        if is_irrelevant_link(clean_url):
+                        if not passes_sideways_restriction:
+                            skip_reason.append(f"Sideways Restriction (not within {initial_url_path})")
+                        if not passes_backwards_restriction:
+                            skip_reason.append(f"Backwards Restriction (moves up from {initial_url_path})")
+                        if not is_not_irrelevant_extension:
                             skip_reason.append("Irrelevant Link")
 
                         log_message(
@@ -573,7 +607,7 @@ class Crawler:
         )
         return set(), []
 
-    def _try_requests_first(self, url):
+    def _try_requests_first(self, url, initial_url_path: str):
         """Attempt to fetch page with requests before using Selenium."""
         try:
             session = get_requests_session()
@@ -601,8 +635,26 @@ class Crawler:
                 clean = normalize_url(full)
                 parsed = urlparse(clean)
                 root = get_root_domain(parsed.netloc)
+                clean_url_path = parsed.path
 
-                if (root == base_root or SETTINGS["allow_external_links"]) and not is_irrelevant_link(clean):
+                is_valid_domain = (root == base_root or SETTINGS["allow_external_links"])
+                is_not_irrelevant_extension = not is_irrelevant_link(clean)
+
+                passes_sideways_restriction = True
+                if SETTINGS["restrict_sideways_crawling"]:
+                    effective_initial_path = initial_url_path if initial_url_path.endswith('/') else initial_url_path + '/'
+                    passes_sideways_restriction = clean_url_path.startswith(effective_initial_path)
+
+                passes_backwards_restriction = True
+                if SETTINGS["restrict_backwards_crawling"]:
+                    if initial_url_path != '/':
+                        if clean_url_path == '/' or initial_url_path.startswith(clean_url_path + '/'):
+                             if clean_url_path == '/' and initial_url_path != '/':
+                                passes_backwards_restriction = False
+                             elif initial_url_path.startswith(clean_url_path + '/'):
+                                passes_backwards_restriction = False
+
+                if is_valid_domain and is_not_irrelevant_extension and passes_sideways_restriction and passes_backwards_restriction:
                     links.add(clean)
                     if SETTINGS["enable_visual_tree_generation"]:
                         relationships.append((url, clean))
@@ -612,15 +664,15 @@ class Crawler:
         except Exception:
             return None
 
-    def crawl_single_page(self, url_to_crawl: str):
+    def crawl_single_page(self, url_to_crawl: str, initial_url_path: str):
         """Try fast requests-based crawl first, then fall back to Selenium."""
-        fast_result = self._try_requests_first(url_to_crawl)
+        fast_result = self._try_requests_first(url_to_crawl, initial_url_path)
         if fast_result:
             return fast_result
 
         driver = self.webdriver_manager.create_driver()
         try:
-            return self._get_links_from_page_content(url_to_crawl, driver)
+            return self._get_links_from_page_content(url_to_crawl, driver, initial_url_path)
         except ConnectionRefusedForCrawlerError as e:
             # Re-raise the exception to be caught by the coordinator
             raise e
@@ -883,9 +935,10 @@ class CrawlCoordinator:
         self.crawling_queue = deque()
         self.queue_for_archiving = deque()
         self.visited_urls = set()
-        self.crawling_futures_set = set() # Store (Future, url, root_domain) tuples
+        self.crawling_futures_set = set() # Store (Future, url, root_domain, initial_url_path) tuples
         self.archiving_futures_set = set() # Store (Future, url) tuples
         self.skipped_root_domains = set()
+        self.initial_url_path = None # Initialize new instance attribute
 
         # Archiving stats
         self.archived_count = 0
@@ -937,10 +990,16 @@ class CrawlCoordinator:
             normalized_url = normalize_url(url)
             root_domain = get_root_domain(urlparse(normalized_url).netloc)
 
+            if self.initial_url_path is None:
+                self.initial_url_path = urlparse(normalized_url).path
+                # Ensure the initial path ends with a '/' if it's not the root
+                if self.initial_url_path != '/' and not self.initial_url_path.endswith('/'):
+                    self.initial_url_path += '/'
+
             if normalized_url not in self.visited_urls:
                 log_message("INFO", f"Starting with URLs: {normalized_url}", debug_only=False)
                 self.visited_urls.add(normalized_url)
-                self.crawling_queue.append((normalized_url, root_domain))
+                self.crawling_queue.append((normalized_url, root_domain, self.initial_url_path))
                 self.queue_for_archiving.append(normalized_url)
         self.total_links_to_archive = len(self.queue_for_archiving) # Set initial total
 
@@ -950,7 +1009,7 @@ class CrawlCoordinator:
             self.crawling_queue
             and (self.max_crawler_workers is None or len(self.crawling_futures_set) < self.max_crawler_workers)
         ):
-            url, root_domain = self.crawling_queue.popleft()
+            url, root_domain, initial_url_path = self.crawling_queue.popleft()
             if root_domain in self.skipped_root_domains:
                 log_message(
                     "INFO",
@@ -958,8 +1017,8 @@ class CrawlCoordinator:
                     debug_only=True,
                 )
                 continue
-            future = executor.submit(self.crawler.crawl_single_page, url)
-            self.crawling_futures_set.add((future, url, root_domain))
+            future = executor.submit(self.crawler.crawl_single_page, url, initial_url_path)
+            self.crawling_futures_set.add((future, url, root_domain, initial_url_path))
             log_message("INFO", f"Submitted crawl task for: {url}", debug_only=True)
 
     def _submit_archive_tasks(self, executor):
@@ -1001,7 +1060,7 @@ class CrawlCoordinator:
                 if crawling_enabled and SETTINGS["max_crawl_runtime"] > 0 and (current_time - crawl_process_start_time) > SETTINGS["max_crawl_runtime"]:
                     log_message("INFO", f"Max crawling runtime of {SETTINGS['max_crawl_runtime']} seconds reached. Stopping new crawl tasks and cancelling active ones.", debug_only=False)
                     crawling_enabled = False
-                    for future, url, root_domain in list(self.crawling_futures_set): # Iterate over a copy
+                    for future, url, root_domain, initial_url_path in list(self.crawling_futures_set): # Iterate over a copy
                         if not future.done():
                             future.cancel()
                             log_message("DEBUG", f"Cancelled running/pending crawl task for {url}", debug_only=True)
@@ -1064,7 +1123,7 @@ class CrawlCoordinator:
                                 found_and_processed = True
                                 break
 
-                            url, current_branch_root = cf_info[1], cf_info[2]
+                            url, current_branch_root, initial_url_path = cf_info[1], cf_info[2], cf_info[3]
                             try:
                                 links_on_page, relationships_on_page = future.result()
                                 log_message("DEBUG", f"Crawl task for {url} completed.", debug_only=True)
@@ -1081,7 +1140,7 @@ class CrawlCoordinator:
                                             link_root_domain = get_root_domain(urlparse(link).netloc)
 
                                             # Add to crawling queue with its own root domain context
-                                            self.crawling_queue.append((link, link_root_domain))
+                                            self.crawling_queue.append((link, link_root_domain, initial_url_path))
                                             self.queue_for_archiving.append(link)
                                             self.total_links_to_archive += 1
                                             log_message("DEBUG", f"Branching to: {link_root_domain} via {link}", debug_only=True)
