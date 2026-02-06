@@ -8,7 +8,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, Signal, QObject
 
 # Import your script
-from main import SETTINGS, CrawlCoordinator
+from WaybackWhen import SETTINGS, CrawlCoordinator
 
 
 # -----------------------------
