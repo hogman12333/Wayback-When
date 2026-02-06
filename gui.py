@@ -1,164 +1,184 @@
+# crawler_gui.py
+
 import sys
-import threading
-from PySide6.QtWidgets import (
-    QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
-    QPushButton, QScrollArea, QFormLayout, QCheckBox, QSpinBox, QDoubleSpinBox,
-    QTextEdit, QMessageBox
+from urllib.parse import urlparse
+
+from PyQt6.QtCore import QObject, QThread, pyqtSignal
+from PyQt6.QtWidgets import (
+    QApplication, QWidget, QVBoxLayout, QHBoxLayout,
+    QListWidget, QPushButton, QLineEdit, QLabel,
+    QCheckBox, QSpinBox, QGroupBox, QTextEdit
 )
-from PySide6.QtCore import Qt, Signal, QObject
 
-# Import your script
-from WaybackWhen import SETTINGS, CrawlCoordinator
-
-
-# -----------------------------
-# Log signal bridge
-# -----------------------------
-class LogEmitter(QObject):
-    log_signal = Signal(str)
-
-log_emitter = LogEmitter()
+# Import your crawler logic
+from WaybackWhen import SETTINGS, normalize_url, get_root_domain, Coordinator
 
 
-# Patch your log_message to send logs to GUI
-def gui_log_message(level, message, debug_only=False):
-    if debug_only and not SETTINGS["debug_mode"]:
-        return
-    log_emitter.log_signal.emit(f"[{level.upper()}] {message}")
+# ---------------- Worker Thread ---------------- #
 
-# Replace original logger
-import main
-main.log_message = gui_log_message
+class CrawlerWorker(QObject):
+    crawlQueueUpdated = pyqtSignal(list)
+    archiveQueueUpdated = pyqtSignal(list)
+    statsUpdated = pyqtSignal(dict)
+    logMessage = pyqtSignal(str)
 
-
-# -----------------------------
-# GUI Window
-# -----------------------------
-class SettingsWindow(QWidget):
-    def __init__(self):
+    def __init__(self, coordinator):
         super().__init__()
-        self.setWindowTitle("Web Crawler & Archiver – GUI")
-        self.setMinimumSize(700, 600)
+        self.coordinator = coordinator
+        self.running = True
 
-        layout = QVBoxLayout(self)
+    def run(self):
+        self.logMessage.emit("Crawler worker started.")
+        while self.running:
+            try:
+                self.coordinator.step()
+                self.emit_state()
+            except Exception as e:
+                self.logMessage.emit(f"Worker error: {e}")
+
+    def emit_state(self):
+        self.crawlQueueUpdated.emit(list(self.coordinator.crawling_queue))
+        self.archiveQueueUpdated.emit(list(self.coordinator.queue_for_archiving))
+        self.statsUpdated.emit(self.coordinator.get_stats())
+
+    def stop(self):
+        self.running = False
+        self.logMessage.emit("Crawler worker stopping.")
+
+
+# ---------------- GUI ---------------- #
+
+class CrawlerGUI(QWidget):
+    def __init__(self, coordinator):
+        super().__init__()
+        self.coordinator = coordinator
+        self.init_ui()
+
+    def init_ui(self):
+        self.setWindowTitle("Crawler Control Panel")
+        self.resize(900, 600)
+
+        layout = QVBoxLayout()
 
         # URL input
-        url_layout = QHBoxLayout()
-        url_layout.addWidget(QLabel("Target URLs (comma separated):"))
-        self.url_input = QLineEdit()
-        url_layout.addWidget(self.url_input)
-        layout.addLayout(url_layout)
+        url_row = QHBoxLayout()
+        self.url_entry = QLineEdit()
+        self.url_entry.setPlaceholderText("Enter URL to add...")
+        add_btn = QPushButton("Add URL")
+        add_btn.clicked.connect(self.add_url)
+        url_row.addWidget(self.url_entry)
+        url_row.addWidget(add_btn)
+        layout.addLayout(url_row)
 
-        # Scrollable settings panel
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        settings_widget = QWidget()
-        self.form = QFormLayout(settings_widget)
+        # Crawl queue
+        layout.addWidget(QLabel("Crawl Queue"))
+        self.crawl_list = QListWidget()
+        layout.addWidget(self.crawl_list)
 
-        self.widgets = {}
-        self.build_settings_form()
+        # Archive queue
+        layout.addWidget(QLabel("Archive Queue"))
+        self.archive_list = QListWidget()
+        layout.addWidget(self.archive_list)
 
-        scroll.setWidget(settings_widget)
-        layout.addWidget(scroll)
+        # Stats
+        self.stats_label = QLabel("Stats will appear here")
+        layout.addWidget(self.stats_label)
 
-        # Start button
-        self.start_button = QPushButton("Start Crawl")
-        self.start_button.clicked.connect(self.start_crawl)
-        layout.addWidget(self.start_button)
+        # Settings
+        settings_box = QGroupBox("Settings")
+        settings_layout = QVBoxLayout()
 
-        # Log output
-        self.log_output = QTextEdit()
-        self.log_output.setReadOnly(True)
-        layout.addWidget(self.log_output)
+        self.debug_checkbox = QCheckBox("Debug Mode")
+        self.debug_checkbox.setChecked(SETTINGS["debug_mode"])
+        self.debug_checkbox.stateChanged.connect(self.toggle_debug)
+        settings_layout.addWidget(self.debug_checkbox)
 
-        # Connect log signal
-        log_emitter.log_signal.connect(self.append_log)
+        self.worker_spin = QSpinBox()
+        self.worker_spin.setMinimum(0)
+        self.worker_spin.setMaximum(100)
+        self.worker_spin.setValue(SETTINGS["max_crawler_workers"])
+        self.worker_spin.valueChanged.connect(self.update_workers)
+        settings_layout.addWidget(QLabel("Crawler Workers"))
+        settings_layout.addWidget(self.worker_spin)
 
-    # -----------------------------
-    # Build settings form dynamically
-    # -----------------------------
-    def build_settings_form(self):
-        for key, value in SETTINGS.items():
-            if isinstance(value, bool):
-                widget = QCheckBox()
-                widget.setChecked(value)
-            elif isinstance(value, int):
-                widget = QSpinBox()
-                widget.setMaximum(999999)
-                widget.setValue(value)
-            elif isinstance(value, float):
-                widget = QDoubleSpinBox()
-                widget.setDecimals(3)
-                widget.setMaximum(999999.0)
-                widget.setValue(value)
-            elif isinstance(value, list):
-                widget = QLineEdit(", ".join(value))
-            else:
-                widget = QLineEdit(str(value))
+        settings_box.setLayout(settings_layout)
+        layout.addWidget(settings_box)
 
-            self.widgets[key] = widget
-            self.form.addRow(QLabel(key), widget)
+        # Log panel
+        layout.addWidget(QLabel("Log"))
+        self.log_view = QTextEdit()
+        self.log_view.setReadOnly(True)
+        layout.addWidget(self.log_view)
 
-    # -----------------------------
-    # Apply GUI settings → script SETTINGS
-    # -----------------------------
-    def apply_settings(self):
-        for key, widget in self.widgets.items():
-            if isinstance(widget, QCheckBox):
-                SETTINGS[key] = widget.isChecked()
-            elif isinstance(widget, QSpinBox):
-                SETTINGS[key] = widget.value()
-            elif isinstance(widget, QDoubleSpinBox):
-                SETTINGS[key] = widget.value()
-            else:
-                text = widget.text().strip()
-                if key == "proxies":
-                    SETTINGS[key] = [p.strip() for p in text.split(",") if p.strip()]
-                else:
-                    SETTINGS[key] = text
+        self.setLayout(layout)
 
-    # -----------------------------
-    # Start crawl in background thread
-    # -----------------------------
-    def start_crawl(self):
-        urls = self.url_input.text().strip()
-        if not urls:
-            QMessageBox.warning(self, "Error", "Please enter at least one URL.")
-            return
+    # ---- GUI Actions ---- #
 
-        self.apply_settings()
+    def add_url(self):
+        url = self.url_entry.text().strip()
+        if url:
+            self.coordinator.add_url_live(url)
+            self.url_entry.clear()
 
-        url_list = [u.strip() for u in urls.split(",") if u.strip()]
+    def toggle_debug(self, state):
+        SETTINGS["debug_mode"] = bool(state)
 
-        self.start_button.setEnabled(False)
-        self.log_output.append("Starting crawl...\n")
+    def update_workers(self, value):
+        SETTINGS["max_crawler_workers"] = value
 
-        thread = threading.Thread(target=self.run_crawl, args=(url_list,), daemon=True)
-        thread.start()
+    # ---- Worker Signal Slots ---- #
 
-    def run_crawl(self, urls):
-        try:
-            coordinator = CrawlCoordinator()
-            coordinator.add_initial_urls(urls)
-            coordinator.run()
-        except Exception as e:
-            log_emitter.log_signal.emit(f"[ERROR] {e}")
-        finally:
-            log_emitter.log_signal.emit("Crawl finished.\n")
-            self.start_button.setEnabled(True)
+    def update_crawl_queue(self, items):
+        self.crawl_list.clear()
+        self.crawl_list.addItems(items)
 
-    # -----------------------------
-    # Log output
-    # -----------------------------
-    def append_log(self, text):
-        self.log_output.append(text)
+    def update_archive_queue(self, items):
+        self.archive_list.clear()
+        self.archive_list.addItems(items)
+
+    def update_stats(self, stats):
+        self.stats_label.setText(
+            f"Archived: {stats['archived']} | "
+            f"Skipped: {stats['skipped']} | "
+            f"Failed: {stats['failed']} | "
+            f"Total: {stats['total']}"
+        )
+
+    def append_log(self, msg):
+        self.log_view.append(msg)
 
 
-# -----------------------------
-# Main entry
-# -----------------------------
-if __name__ == "__main__":
+# ---------------- Entrypoint ---------------- #
+
+def main():
     app = QApplication(sys.argv)
-    window = SettingsWindow()
-    window.show()
+
+    coordinator = Coordinator()
+
+    gui = CrawlerGUI(coordinator)
+
+    thread = QThread()
+    worker = CrawlerWorker(coordinator)
+    worker.moveToThread(thread)
+
+    thread.started.connect(worker.run)
+
+    worker.crawlQueueUpdated.connect(gui.update_crawl_queue)
+    worker.archiveQueueUpdated.connect(gui.update_archive_queue)
+    worker.statsUpdated.connect(gui.update_stats)
+    worker.logMessage.connect(gui.append_log)
+
+    def shutdown():
+        worker.stop()
+        thread.quit()
+        thread.wait()
+
+    app.aboutToQuit.connect(shutdown)
+
+    thread.start()
+    gui.show()
     sys.exit(app.exec())
+
+
+if __name__ == "__main__":
+    main()
