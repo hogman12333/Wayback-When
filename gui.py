@@ -61,7 +61,7 @@ class CrawlerGUI(QWidget):
         self.init_ui()
 
     def init_ui(self):
-        self.setWindowTitle("Crawler Control Panel")
+        self.setWindowTitle("Wayback When")
         self.resize(1000, 650)
         main_layout = QHBoxLayout()
         self.setLayout(main_layout)
