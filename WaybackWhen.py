@@ -948,10 +948,12 @@ class CrawlCoordinator:
 
         self._resolve_worker_counts()
 
-        # --- GUI control ---
+        # --- GUI / live control ---
         self.pause_event = threading.Event()
-        self.pause_event.set()  # running by default
+        self.pause_event.set()
         self.stop_requested = False
+        self.accepting_live_input = True
+
 
     def _resolve_worker_counts(self) -> None:
         """Resolve max workers for crawler and archiver based on SETTINGS."""
@@ -986,8 +988,27 @@ class CrawlCoordinator:
         self.stop_requested = True
         self.pause_event.set()
 
+    def add_url_live(self, url: str):
+        normalized = normalize_url(url)
+        if normalized in self.visited_urls:
+            return
+
+        parsed = urlparse(normalized)
+        root_domain = get_root_domain(parsed.netloc)
+
+        if self.initial_url_path is None:
+            self.initial_url_path = parsed.path or "/"
+            if self.initial_url_path != "/" and not self.initial_url_path.endswith("/"):
+                self.initial_url_path += "/"
+
+        self.visited_urls.add(normalized)
+        self.crawling_queue.append((normalized, root_domain, self.initial_url_path))
+        self.queue_for_archiving.append(normalized)
+        self.total_links_to_archive += 1
+
     def add_initial_urls(self, urls):
         """Normalize and enqueue initial URLs for crawling and archiving."""
+
 
         for url in urls:
             parsed_url = urlparse(url)
@@ -1055,7 +1076,7 @@ class CrawlCoordinator:
             debug_only=True,
         )
 
-        overall_start_time = time.time() # This is for the total script runtime measurement
+        overall_start_time = time.time()
         crawl_process_start_time = time.time()
         archive_process_start_time = time.time()
         crawling_enabled = True
@@ -1107,8 +1128,12 @@ class CrawlCoordinator:
                 all_archiving_done = (not archiving_enabled) or (not self.queue_for_archiving and not self.archiving_futures_set)
 
                 if all_crawling_done and all_archiving_done:
-                    log_message("INFO", "All crawling and archiving tasks completed or stopped by runtime limits.", debug_only=False)
+                    if self.accepting_live_input:
+                        time.sleep(0.2)
+                        continue
+                    log_message("INFO", "All crawling and archiving tasks completed.", debug_only=False)
                     break
+
 
                 # Collect all active futures to wait on
                 all_active_futures = {f_info[0] for f_info in self.crawling_futures_set} | \
@@ -1288,6 +1313,17 @@ def main():
         return
 
     coordinator = CrawlCoordinator()
+    def pause(self):
+        self.pause_event.clear()
+
+    def resume(self):
+        self.pause_event.set()
+
+    def stop(self):
+        self.stop_requested = True
+        self.accepting_live_input = False
+        self.pause_event.set()
+
     coordinator.add_initial_urls(initial_urls_raw)
     coordinator.run()
 
