@@ -14,7 +14,7 @@ from WaybackWhen import SETTINGS, normalize_url, CrawlCoordinator
 class CrawlerGUI(QWidget):
     def __init__(self):
         super().__init__()
-        self.coordinator = CrawlCoordinator()
+        self.coordinator = None
         self.worker_thread = None
         self.timer = None
 
@@ -110,16 +110,18 @@ class CrawlerGUI(QWidget):
 
 
     def start(self):
-        if self.worker_thread and self.worker_thread.is_alive():
-            return
-
         url = self.url_entry.text().strip()
         if not url:
             return
         if "://" not in url:
             url = "http://" + url
-
         url = normalize_url(url)
+
+        if self.worker_thread and self.worker_thread.is_alive():
+            self.coordinator.add_url_live(url)
+            return
+
+        self.coordinator = CrawlCoordinator()
         self.coordinator.add_initial_urls([url])
 
         self.worker_thread = threading.Thread(
@@ -131,14 +133,20 @@ class CrawlerGUI(QWidget):
         self.timer.timeout.connect(self.poll_state)
         self.timer.start(200)
 
+
     def pause(self):
-        self.coordinator.pause()
+        if self.coordinator:
+            self.coordinator.pause()
+
 
     def resume(self):
-        self.coordinator.resume()
+        if self.coordinator:
+            self.coordinator.resume()
+
 
     def stop(self):
-        self.coordinator.stop()
+        if self.coordinator:
+            self.coordinator.stop()
         if self.timer:
             self.timer.stop()
 
