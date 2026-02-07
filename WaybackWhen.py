@@ -948,6 +948,11 @@ class CrawlCoordinator:
 
         self._resolve_worker_counts()
 
+        # --- GUI control ---
+        self.pause_event = threading.Event()
+        self.pause_event.set()  # running by default
+        self.stop_requested = False
+
     def _resolve_worker_counts(self) -> None:
         """Resolve max workers for crawler and archiver based on SETTINGS."""
         max_crawler_workers_setting = SETTINGS["max_crawler_workers"]
@@ -971,9 +976,19 @@ class CrawlCoordinator:
                 "Safety is enabled. Crawling with 1 worker and increasing cooldown.",
                 debug_only=False,
             )
+    def pause(self):
+        self.pause_event.clear()
+
+    def resume(self):
+        self.pause_event.set()
+
+    def stop(self):
+        self.stop_requested = True
+        self.pause_event.set()
 
     def add_initial_urls(self, urls):
         """Normalize and enqueue initial URLs for crawling and archiving."""
+
         for url in urls:
             parsed_url = urlparse(url)
             # If scheme is empty, prepend http://
@@ -1054,7 +1069,12 @@ class CrawlCoordinator:
             archiver_executor = concurrent.futures.ThreadPoolExecutor(max_workers=self.max_archiver_workers)
 
             while True:
+                self.pause_event.wait()
+                if self.stop_requested:
+                    break
+
                 current_time = time.time()
+
 
                 # Check for max crawl runtime
                 if crawling_enabled and SETTINGS["max_crawl_runtime"] > 0 and (current_time - crawl_process_start_time) > SETTINGS["max_crawl_runtime"]:
