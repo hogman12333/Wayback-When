@@ -1,45 +1,82 @@
-# These are WIP, Please Execute with caution
+# Installation Instructions
 
-# Windows Setup Guide
+These steps install Python, pip, and a Chromium‑based browser. Commands may need `sudo` permissions.
 
-## 1. Install Python
-- Download Python 3.9 from: https://www.python.org/downloads/windows/
-- Run the installer and enable **“Add Python to PATH”**.
-- Verify installation:
-  ```cmd
-  python --version
-  pip --version
-  ```
-
-## 2. Install Google Chrome
-- Download from: https://www.google.com/chrome/
-
-## 3. ChromeDriver (Automatic)
-- No manual setup required.
-- The script uses **webdriver‑manager**, which automatically downloads the correct ChromeDriver version.
-
-## 4. Install Required Python Packages
-Navigate to your project directory and run:
-```cmd
-pip install requests beautifulsoup4 waybackpy selenium webdriver-manager selenium-stealth networkx matplotlib ipython
-```
-## 5. Run the Script
-```cmd
-python WaybackWhen.py
-```
-Debian/Ubuntu
 ---
-```cmd 
-sudo apt update && sudo apt install -y python3 python3-pip wget unzip gnupg ca-certificates fonts-liberation libnss3 libxss1 libasound2 libatk1.0-0 libatk-bridge2.0-0 libgtk-3-0 libx11-xcb1 libxcomposite1 libxrandr2 libgbm1 && wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | sudo apt-key add - && sudo sh -c 'echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" > /etc/apt/sources.list.d/google-chrome.list' && sudo apt update && sudo apt install -y google-chrome-stable && sudo pip3 install --upgrade pip && sudo pip3 install selenium webdriver-manager waybackpy beautifulsoup4 requests networkx matplotlib selenium-stealth 
+
+## Debian‑Based
 ```
-```cmd
-source venv/bin/activate
+sudo apt update
+sudo apt install python3 python3-pip python3-venv curl unzip
+sudo apt install chromium-browser
+pip install requests beautifulsoup4 waybackpy selenium webdriver-manager selenium-stealth networkx matplotlib
 ```
-```cmd
-python3 WaybackWhen.py
-```
-Arch
+
 ---
-``` cmd
-sudo pacman -Syu --noconfirm && sudo pacman -S --noconfirm --needed python python-pip chromium chromedriver wget unzip ca-certificates libnss libxss alsa-lib atk atk-bridge gtk3 libx11 libxcomposite libxrandr libgbm liberation-fonts && sudo pip3 install --upgrade pip && sudo pip3 install selenium webdriver-manager waybackpy beautifulsoup4 requests networkx matplotlib selenium-stealth
+
+## Ubuntu‑Based
 ```
+sudo apt update
+sudo apt install python3 python3-pip python3-venv curl unzip
+sudo apt install chromium-browser
+pip install requests beautifulsoup4 waybackpy selenium webdriver-manager selenium-stealth networkx matplotlib
+```
+
+---
+
+## Arch‑Based
+```
+sudo pacman -Syu
+sudo pacman -S python python-pip chromium
+pip install requests beautifulsoup4 waybackpy selenium webdriver-manager selenium-stealth networkx matplotlib
+```
+
+---
+
+## RHEL‑Based
+```
+sudo dnf update
+sudo dnf install python3 python3-pip python3-virtualenv curl unzip
+sudo dnf install chromium
+pip install requests beautifulsoup4 waybackpy selenium webdriver-manager selenium-stealth networkx matplotlib
+```
+
+---
+
+## Gentoo‑Based
+```
+sudo emerge --sync
+sudo emerge --ask dev-lang/python dev-python/pip www-client/chromium
+pip install requests beautifulsoup4 waybackpy selenium webdriver-manager selenium-stealth networkx matplotlib
+```
+
+---
+
+## Nix / NixOS
+Temporary shell:
+```
+nix-shell -p python3 python3Packages.pip chromium
+pip install requests beautifulsoup4 waybackpy selenium webdriver-manager selenium-stealth networkx matplotlib
+```
+
+Or add to configuration.nix:
+```
+environment.systemPackages = [
+  python3
+  python3Packages.pip
+  chromium
+];
+```
+
+---
+
+## Windows
+1. Install Python from https://www.python.org/downloads/  
+2. Install Google Chrome from https://www.google.com/chrome/  
+3. Open PowerShell:
+```
+py -m pip install --upgrade pip
+py -m pip install requests beautifulsoup4 waybackpy selenium webdriver-manager selenium-stealth networkx matplotlib
+```
+
+---
