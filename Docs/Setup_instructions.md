@@ -1,6 +1,6 @@
 # Installation Instructions
 
-WaybackWhen requires Python, pip libraries, and a Chromium‑based browser.Some commands may need `sudo` permissions.
+WaybackWhen requires Python, pip libraries, and a Chromium‑based browser. Some commands may need `sudo` permissions.
 
 ---
 
