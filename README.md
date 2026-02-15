@@ -10,96 +10,44 @@ Wayback When uses a Selenium‑based scraper to explore a website and collect ev
 ## Archiver
 The archiver decides which pages actually need to be saved. For every link the scraper finds, it checks the Wayback Machine to see when the page was last archived. If the snapshot is recent, it skips it. If it’s old or missing, it sends a new save request. It also handles rate limits and retries so the process can run for long periods without manual supervision.
 
-# V1.1 Release
+# V1.2 Release
 
-# New Additions and Enhancements in V1.1
+## New Additions and Enhancements in V1.2
 
-* **New Imports and Reorganization**
-  * Reworked import grouping into clear sections: Selenium, visualization, Jupyter helpers.
-  * Consolidated `collections` imports to include `deque` alongside `OrderedDict`.
+### Settings
+* Added a ``max_crawl_runtime`` setting  
+* Added a ``max_archive_runtime`` setting  
+* ``SETTINGS`` have been sorted alphabetically  
+* Increased ``retries`` from **3 → 5**  
+* Reduced ``archive_timeout_seconds`` from **1200s → 300s**  
+* Removed deprecated ``max_archiving_queue_size`` (fully deprecated)
 
-* **Refactored Architecture**
-  * Introduced classes: **WebDriverManager**, **Crawler**, and **Archiver** to encapsulate driver lifecycle, crawling, and archiving responsibilities.
-  * Replaced many procedural globals and helper wrappers with class methods for improved lifecycle management and testability.
+### Added Features
+* Added Runtime to Archiving Summary  
+* Added Progress Counter to the Archival Messages  
+* Added new global runtime limits: ``max_crawl_runtime`` and ``max_archive_runtime``  
+* Added ``logging`` import for future structured logging support
 
-* **New Exceptions**
-  * **ConnectionRefusedForCrawlerError**: Raised to abort crawling a branch when the browser reports a connection-refused error.
-  * **CaptchaDetectedError** retained and clarified as a dedicated CAPTCHA signal.
+### Error Handling
+* Hid ``urllib3`` Error Messages behind ``DEBUG_MODE``  
+* Hid ``WebDriver`` Error Messages behind ``DEBUG_MODE``  
+* Hid "Attempting to continue after automated wait..." behind ``DEBUG_MODE``  
+* Hid "Failed to retrieve ``{base_url}`` after ``{retries}`` attempts." behind ``DEBUG_MODE``  
+* Hid "CAPTCHA DETECTED for ``{base_url}``. Waiting 5–10 seconds..." behind ``DEBUG_MODE``  
+* Archiving errors now fall under the ``retry`` variable  
+* Improved timeout handling for archiving threads (now retries instead of immediate failure)
 
-* **Updated SETTINGS Dictionary**
-  * **Changed defaults** and added new keys:
-    * `archiving_cooldown` increased to **90** days.
-    * `max_crawler_workers` default set to **10** (0 still supported as unlimited).
-    * `retries` default set to **3**.
-    * New keys: `min_link_search_delay`, `max_link_search_delay`, `safety_switch`, `proxies`, `max_archiving_queue_size`, `allow_external_links`, `archive_timeout_seconds`.
-  * `max_archiver_workers` retained and clarified (0 = unlimited).
+### Bug Fixes
+* Fixed issue where "Finished processing ``{base_url}``. Discovered ``{len(links)}`` links." would be shown as ``DEBUG`` instead of ``INFO``  
+* Fixed issue where URL Normalisation would add ``HTTP://`` to FTP and RSYNC URLs, causing scraping issues  
+* Fixed archiving timeout logic so that a timeout no longer permanently blocks the thread  
+* Fixed inconsistent logging levels between crawler and archiver subsystems
 
-* **Requests-first Fast Path**
-  * Added `_try_requests_first()` to attempt a lightweight `requests` + `BeautifulSoup` crawl before falling back to Selenium, improving speed and reducing resource usage for simple pages.
-
-* **Improved WebDriver Management**
-  * `WebDriverManager.create_driver()` centralizes driver creation, adds proxy support, experimental prefs, `implicitly_wait(10)`, and consistent stealth application.
-  * `WebDriverManager.destroy_driver()` ensures safe `driver.quit()` cleanup.
-
-* **Enhanced Crawling Logic**
-  * `_get_links_from_page_content()` replaces the older `get_internal_links()` with:
-    * Better CAPTCHA detection (more indicators).
-    * Connection-refused detection that raises `ConnectionRefusedForCrawlerError`.
-    * Respect for `SETTINGS["allow_external_links"]` and `is_irrelevant_link()` filtering.
-    * Optional visual relationship collection when `enable_visual_tree_generation` is enabled.
-  * `crawl_single_page()` now tries the fast requests path first, then Selenium if needed.
-
-* **New Utility is_irrelevant_link**
-  * Centralized logic to filter out assets and irrelevant paths using an expanded `IRRELEVANT_EXTENSIONS` and `IRRELEVANT_PATH_SEGMENTS` list.
-
-* **HTTP Session Factory**
-  * `get_requests_session()` returns a configured `requests.Session` with retry strategy and optional proxy selection.
-
-* **Archiving Improvements**
-  * `Archiver.should_archive()` and `Archiver.process_link_for_archiving()` replace the old procedural archiving functions.
-  * Archiving now runs `wb_obj.save()` inside a dedicated thread and enforces `archive_timeout_seconds` to avoid indefinite blocking.
-  * Reactive global cooldown: `rate_limit_active_until_time` is set when Wayback rate limits are detected to coordinate pauses across threads.
-  * Improved rate-limit handling and clearer failure messages (`[FAILED - TIMEOUT]`, reactive sleeps).
-
-* **Concurrency and Rate-limiting**
-  * Cleaner use of `ThreadPoolExecutor` with explicit worker limits.
-  * Implemented DFS instead of BFS
-  * Global `archive_lock`, `last_archive_time`, and `rate_limit_active_until_time` coordinate per-thread and global rate limiting.
-
-* **Logging and Typing**
-  * `log_message(level, message, debug_only=False)` retained and used consistently across modules.
-  * Several functions now include type hints for clarity and maintainability.
-
-* **Visualization Integration**
-  * `networkx` and `matplotlib.pyplot` remain available for visual tree generation; relationships are now collected in a structured way by the crawler class for later plotting.
-
-# Notable Changes and Fixes
-
-* **URL Normalization and Filtering**
-  * `normalize_url()` rewritten to normalize paths, remove duplicate slashes, strip index pages, lowercase paths, and produce a sorted query string.
-  * `is_irrelevant_link()` now aggressively filters many asset types and common CMS/static path segments to reduce noise.
-
-* **Behavioral Changes**
-  * Default behavior is more conservative (longer archiving cooldown, debug enabled, limited crawler workers). Update `SETTINGS` to restore previous aggressive defaults if desired.
-  * The crawler no longer requires discovered links to be strict sub-paths of the base URL; `allow_external_links` controls whether external domains are permitted.
-  * Better Link Handling
-
-* **Robustness Fixes**
-  * Fixed potential indefinite blocking on `wb_obj.save()` by adding a timeout and threaded execution.
-  * Improved handling of WebDriver connection errors to avoid endless retries on unreachable branches.
-  * Added proxy support for both `requests` sessions and Selenium driver options.
-
-* **Cleaner Output**
-  * Cleaner Terminal Output
-# Removed and Deprecated
-
-* **Removed or Replaced**
-  * Procedural orchestration functions such as `crawl_website` and `wrapper_get_internal_links` were replaced by class-based equivalents and `crawl_single_page`.
-  * The previous global pattern of long-lived thread-local drivers is reduced in favor of explicit create/destroy per crawl where appropriate.
-
-* **Deprecated**
-  * Relying on `0` to mean "unlimited" is still supported but discouraged; explicit numeric limits are recommended for production runs.
-
+### Miscellaneous
+* Changed message from ``Adding initial URL to queues:`` to ``Starting with URLs:``  
+* Deprecated ``max_archiving_queue_size`` (now fully removed)  
+* Minor internal refactors for clarity and consistency  
+* Improved internal comments and documentation for maintainability  
 
 ## Contributing
 

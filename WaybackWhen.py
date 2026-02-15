@@ -18,8 +18,8 @@ import threading
 import warnings
 import random
 import os
+import logging
 
-# Selenium imports
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service as ChromeService
@@ -28,11 +28,9 @@ from selenium.webdriver.common.by import By
 from selenium.common.exceptions import TimeoutException, WebDriverException
 from selenium_stealth import stealth
 
-# Visualization imports
 import networkx as nx
 import matplotlib.pyplot as plt
 
-# Jupyter/console helper (optional)
 try:
     from IPython.display import clear_output
 except ImportError:
@@ -42,9 +40,6 @@ except ImportError:
 warnings.filterwarnings("ignore", category=XMLParsedAsHTMLWarning)
 
 
-# =========================
-# Custom Exceptions
-# =========================
 
 class CaptchaDetectedError(Exception):
     """Raised when a CAPTCHA is detected on a page."""
@@ -55,30 +50,33 @@ class ConnectionRefusedForCrawlerError(Exception):
     """Raised when a connection is refused for a given URL branch."""
     pass
 
-
-# =========================
-# Settings
-# =========================
-
+'''
+=========================
+Settings
+=========================
+'''
 SETTINGS = {
+    "allow_external_links": False,     #allow crawling external links
+    "archive_timeout_seconds": 1200,   # seconds for archiving a single link
     "archiving_cooldown": 90,          # days
-    "urls_per_minute_limit": 15,       # Wayback rate limit
-    "max_crawler_workers": 10,          # 0 = Unlimited
-    "retries": 3,                      # retries for crawling/archiving
-    "default_archiving_action": "N",   # 'n' normal, 'a' archive all, 's' skip all
     "debug_mode": False,
-    "max_archiver_workers": 1,         # 0 = unlimited
+    "default_archiving_action": "N",   # 'n' normal, 'a' archive all, 's' skip all
     "enable_visual_tree_generation": False,
+    "max_archiver_workers": 1,         # 0 = unlimited
+    "max_crawler_workers": 10,         # 0 = Unlimited
     "min_link_search_delay": 0.0,
     "max_link_search_delay": 5.0,
-    "safety_switch": False,             # Forces the script to slowdown to avoid detection
+    "max_crawl_runtime": 0,            # Maximum total crawling time in Seconds (0 = Unlimited)
+    "max_archive_runtime": 0,          # Maximum total archiving time in Seconds (0 = Unlimited)
     "proxies": [],                     # e.g. ['http://user:pass@ip:port']
-    "max_archiving_queue_size": 0,     # 0 = Unlimited
-    "allow_external_links": False,     # New setting: True to allow crawling external links
-    "archive_timeout_seconds": 1200,    # seconds for archiving a single link
+    "retries": 5,                      # retries for crawling/archiving
+    "safety_switch": False,            # Forces the script to slowdown to avoid detection
+    "urls_per_minute_limit": 15,       # Wayback rate limit
+    "restrict_sideways_crawling": False, # True to restrict crawling to sub-paths of the initial URL
+    "restrict_backwards_crawling": True, # True to restrict crawling from going 'up' the path structure
 }
 
-# Thread-local storage (if needed later)
+# Thread-local storage
 _thread_local = threading.local()
 
 # Lock to ensure only one CAPTCHA prompt is active at a time
@@ -86,17 +84,16 @@ captcha_prompt_lock = threading.Lock()
 
 # Archive rate limiting
 archive_lock = threading.Lock()
-last_archive_time = 0.0  # global timestamp of last archive request
-rate_limit_active_until_time = 0.0 # New global timestamp for reactive rate limiting
+last_archive_time = 0.0  
+rate_limit_active_until_time = 0.0
 
-# Minimum delay between archive requests
 MIN_ARCHIVE_DELAY_SECONDS = 60 / SETTINGS["urls_per_minute_limit"]
 
 
-# =========================
-# User-Agent / Stealth Pools
-# =========================
-
+'''=========================
+User-Agent / Stealth Pools
+=========================
+'''
 OS_TYPES = [
     "Windows NT 10.0; Win64; x64",
     "Windows NT 6.3; Win64; x64",
@@ -146,33 +143,39 @@ STEALTH_RENDERERS = [
     "Metal",
 ]
 
-
-# =========================
-# Irrelevant Extensions / Paths
-# =========================
-
+'''
+=========================
+Irrelevant Extensions / Paths
+=========================
+'''
 IRRELEVANT_EXTENSIONS = (
-    ".3g2", ".3gp", ".7z", ".aac", ".accdb", ".ace", ".aif", ".aiff", ".ai",
-    ".apk", ".arj", ".arw", ".asm", ".azw3", ".bak", ".bash", ".bin", ".blend",
-    ".bmp", ".bz2", ".cab", ".cache", ".c", ".cso", ".conf", ".cpp", ".cr2",
-    ".crt", ".cs", ".csv", ".dat", ".dae", ".deb", ".dmg", ".doc", ".docx",
-    ".drv", ".dxf", ".dwg", ".eml", ".eps", ".epub", ".exe", ".fbx", ".fish",
-    ".flac", ".flv", ".fon", ".gb", ".gba", ".gif", ".go", ".gz", ".h", ".har",
-    ".hpp", ".ics", ".ico", ".igs", ".img", ".ini", ".iso", ".java", ".jpeg",
-    ".jpg", ".js", ".json", ".key", ".kt", ".kts", ".lock", ".log", ".lua",
-    ".lz", ".lzma", ".m", ".map", ".max", ".mdb", ".mid", ".midi", ".mkv",
-    ".mobi", ".mov", ".mp3", ".mp4", ".mpg", ".mpeg", ".msg", ".msi", ".msm",
-    ".msp", ".nef", ".nes", ".obj", ".odp", ".ods", ".odt", ".ogg", ".old",
-    ".opus", ".orf", ".otf", ".pak", ".pcap", ".pcapng", ".pem", ".pdf", ".php",
-    ".pl", ".ply", ".png", ".ppt", ".pptx", ".prn", ".ps", ".py", ".qbb", ".qbw",
-    ".qfx", ".rar", ".rb", ".rm", ".rmvb", ".rom", ".rpm", ".rs", ".rtf", ".r",
-    ".rfa", ".rvt", ".s", ".sav", ".sh", ".sit", ".sitx", ".skp", ".so",
-    ".sqlite", ".sqlite3",
-    ".stl", ".step", ".stp", ".sub", ".swift", ".sys",
-    ".tar", ".temp", ".tif", ".tiff", ".tmp", ".toml", ".tsv", ".ttf", ".uue",
-    ".vhd", ".vhdx", ".vmdk", ".vtt", ".wav", ".wbmp", ".webm", ".webp", ".wma",
-    ".woff", ".woff2", ".wps", ".wmv", ".xcf", ".xls", ".xlsx", ".xml", ".xz",
-    ".yaml", ".yml", ".z", ".zip", ".zsh",
+    ".3g2", ".3gp", ".7z", ".aac", ".accdb", ".ace", ".aif",
+    ".aiff", ".ai", ".apk", ".arj", ".arw", ".asm", ".azw3",
+    ".bak", ".bash", ".bin", ".blend", ".bmp", ".bz2", ".cab",
+    ".cache", ".c", ".cso", ".conf", ".cpp", ".cr2", ".crt",
+    ".cs", ".csv", ".dat", ".dae", ".deb", ".dmg", ".doc",
+    ".docx", ".drv", ".dxf", ".dwg", ".eml", ".eps", ".epub",
+    ".exe", ".fbx", ".fish", ".flac", ".flv", ".fon", ".gb",
+    ".gba", ".gif", ".go", ".gz", ".h", ".har", ".hpp",
+    ".ics", ".ico", ".igs", ".img", ".ini", ".iso", ".java",
+    ".jpeg", ".jpg", ".js", ".json", ".key", ".kt", ".kts",
+    ".lock", ".log", ".lua", ".lz", ".lzma", ".m", ".map",
+    ".max", ".mdb", ".mid", ".midi", ".mkv", ".mobi", ".mov",
+    ".mp3", ".mp4", ".mpg", ".mpeg", ".msg", ".msi", ".msm",
+    ".msp", ".nef", ".nes", ".obj", ".odp", ".ods", ".odt",
+    ".ogg", ".old", ".opus", ".orf", ".otf", ".pak", ".pcap",
+    ".pcapng", ".pem", ".pdf", ".php", ".pl", ".ply", ".png",
+    ".ppt", ".pptx", ".prn", ".ps", ".py", ".qbb", ".qbw",
+    ".qfx", ".rar", ".rb", ".rm", ".rmvb", ".rom", ".rpm",
+    ".rs", ".rtf", ".r", ".rfa", ".rvt", ".s", ".sav",
+    ".sh", ".sit", ".sitx", ".skp", ".so", ".sqlite",
+    ".sqlite3", ".stl", ".step", ".stp", ".sub", ".swift",
+    ".sys", ".tar", ".temp", ".tif", ".tiff", ".tmp",
+    ".toml", ".tsv", ".ttf", ".uue", ".vhd", ".vhdx",
+    ".vmdk", ".vtt", ".wav", ".wbmp", ".webm", ".webp",
+    ".wma", ".woff", ".woff2", ".wps", ".wmv", ".xcf",
+    ".xls", ".xlsx", ".xml", ".xz", ".yaml", ".yml",
+    ".z", ".zip", ".zsh",
 )
 
 IRRELEVANT_PATH_SEGMENTS = (
@@ -190,11 +193,11 @@ IRRELEVANT_PATH_SEGMENTS = (
     "/img/",
 )
 
-
-# =========================
-# Logging
-# =========================
-
+'''
+=========================
+Logging
+=========================
+'''
 def log_message(level: str, message: str, debug_only: bool = False) -> None:
     """Standardized logging function."""
     if debug_only and not SETTINGS["debug_mode"]:
@@ -202,11 +205,11 @@ def log_message(level: str, message: str, debug_only: bool = False) -> None:
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     print(f"[{timestamp}][{level.upper()}] {message}")
 
-
-# =========================
-# Utility Functions
-# =========================
-
+'''
+=========================
+Utility Functions
+=========================
+'''
 def generate_random_user_agent() -> str:
     """Generate a random realistic User-Agent string."""
     os_part = random.choice(OS_TYPES)
@@ -231,23 +234,19 @@ def normalize_url(url: str) -> str:
     scheme = parsed.scheme.lower()
     netloc = parsed.netloc.lower()
 
-    # Normalize path
     path = parsed.path or "/"
     path = path.replace("//", "/")
     path = path.rstrip("/") if path not in ("/", "") else "/"
     path = path.lower()
 
-    # Remove index pages
     for index_page in ["index.html", "index.htm", "default.html", "default.htm"]:
         if path.endswith(index_page):
             path = path[: -len(index_page)]
             if not path:
                 path = "/"
 
-    # Remove fragments
     fragment = ""
 
-    # Clean query params
     query_params = parse_qs(parsed.query)
     tracking_params = (
         "utm_source", "utm_medium", "utm_campaign", "utm_term",
@@ -288,18 +287,17 @@ def redact_proxy(proxy: str) -> str:
     """Strips username/password from a proxy string for logging."""
     parsed = urlparse(proxy)
     if parsed.username or parsed.password:
-        # Reconstruct the URL without username and password
         netloc = parsed.hostname
         if parsed.port:
             netloc = f"{netloc}:{parsed.port}"
         return urlunparse((parsed.scheme, netloc, "", "", "", ""))
     return proxy
 
-
-# =========================
-# HTTP Session Factory
-# =========================
-
+'''
+=========================
+HTTP Session
+=========================
+'''
 retry_strategy = Retry(
     total=5,
     backoff_factor=1,
@@ -322,11 +320,11 @@ def get_requests_session() -> requests.Session:
 
     return session
 
-
-# =========================
-# WebDriver Manager
-# =========================
-
+'''
+=========================
+WebDriver Manager
+=========================
+'''
 class WebDriverManager:
     """Encapsulates Selenium WebDriver creation and teardown."""
 
@@ -341,7 +339,6 @@ class WebDriverManager:
         options.add_argument("--disable-dev-shm-usage")
         options.add_argument("--disable-gpu")
 
-        # Conditionally set binary location for Colab environment
         if os.name == 'posix' and os.path.exists('/usr/bin/google-chrome'):
             options.binary_location = '/usr/bin/google-chrome'
 
@@ -382,18 +379,18 @@ class WebDriverManager:
         except Exception:
             pass
 
-
-# =========================
-# Crawler
-# =========================
-
+'''
+=========================
+Crawler
+=========================
+'''
 class Crawler:
     """Responsible for crawling pages using Selenium and extracting internal links."""
 
     def __init__(self, webdriver_manager: WebDriverManager) -> None:
         self.webdriver_manager = webdriver_manager
 
-    def _get_links_from_page_content(self, base_url: str, driver: webdriver.Chrome):
+    def _get_links_from_page_content(self, base_url: str, driver: webdriver.Chrome, initial_url_path: str):
         """Core logic to load a page and extract internal links."""
         links = set()
         relationships_on_page = []
@@ -450,13 +447,13 @@ class Crawler:
                         log_message(
                             "WARNING",
                             f"CAPTCHA DETECTED for {base_url}. Waiting 5-10 seconds...",
-                            debug_only=False,
+                            debug_only=True,
                         )
                         time.sleep(random.uniform(5, 10))
                         log_message(
                             "INFO",
                             "Attempting to continue after automated wait...",
-                            debug_only=False,
+                            debug_only=True,
                         )
 
                 log_message(
@@ -485,15 +482,37 @@ class Crawler:
                     link_root_domain = get_root_domain(link_netloc)
 
                     clean_url = normalize_url(full_url)
+                    clean_url_path = urlparse(clean_url).path
 
-                    if (
-                        (link_root_domain == base_root_domain or SETTINGS["allow_external_links"])
-                        and not is_irrelevant_link(clean_url)
-                    ):
+                    is_valid_domain = (link_root_domain == base_root_domain or SETTINGS["allow_external_links"])
+                    is_not_irrelevant_extension = not is_irrelevant_link(clean_url)
+
+                    passes_sideways_restriction = True
+                    if SETTINGS["restrict_sideways_crawling"]:
+                        # Ensure initial_url_path ends with '/', for consistent startswith behavior
+                        effective_initial_path = initial_url_path if initial_url_path.endswith('/') else initial_url_path + '/'
+                        passes_sideways_restriction = clean_url_path.startswith(effective_initial_path)
+
+                    passes_backwards_restriction = True
+                    if SETTINGS["restrict_backwards_crawling"]:
+                        # A link is considered "backwards" if its path is a strict prefix of the initial_url_path
+                        # or if it's the root path of the domain and initial_url_path is not the root path.
+                        if initial_url_path != '/':
+                            if clean_url_path == '/' or initial_url_path.startswith(clean_url_path + '/') : # A.B vs A.B.C or A vs A.B
+                                # Check if clean_url_path is a parent directory of initial_url_path
+                                # Example: initial_url_path = /a/b/c, clean_url_path = /a/b
+                                # or initial_url_path = /a/b, clean_url_path = /a
+                                # We also consider going to the root '/' from a non-root initial_url_path as 'backwards'
+                                if clean_url_path == '/' and initial_url_path != '/':
+                                    passes_backwards_restriction = False
+                                elif initial_url_path.startswith(clean_url_path + '/'):
+                                    passes_backwards_restriction = False
+
+                    if is_valid_domain and is_not_irrelevant_extension and passes_sideways_restriction and passes_backwards_restriction:
                         log_message(
                             "INFO",
                             f"Discovered internal link: {clean_url} "
-                            f"(Root domain: {link_root_domain})",
+                            f" (Root domain: {link_root_domain})",
                             debug_only=True
                         )
                         links.add(clean_url)
@@ -501,9 +520,13 @@ class Crawler:
                             relationships_on_page.append((base_url, clean_url))
                     else:
                         skip_reason = []
-                        if link_root_domain != base_root_domain and not SETTINGS["allow_external_links"]:
+                        if not is_valid_domain:
                             skip_reason.append(f"External Domain ({link_root_domain} != {base_root_domain})")
-                        if is_irrelevant_link(clean_url):
+                        if not passes_sideways_restriction:
+                            skip_reason.append(f"Sideways Restriction (not within {initial_url_path})")
+                        if not passes_backwards_restriction:
+                            skip_reason.append(f"Backwards Restriction (moves up from {initial_url_path})")
+                        if not is_not_irrelevant_extension:
                             skip_reason.append("Irrelevant Link")
 
                         log_message(
@@ -520,7 +543,7 @@ class Crawler:
                     )
 
                 log_message(
-                    "DEBUG",
+                    "INFO",
                     f"Finished processing {base_url}. Discovered {len(links)} links.",
                     debug_only=False,
                 )
@@ -530,7 +553,7 @@ class Crawler:
                 log_message(
                     "WARNING",
                     f"Page load timed out for {base_url}. Retrying ({retries - attempt - 1} attempts left).",
-                    debug_only=False,
+                    debug_only=True,
                 )
                 attempt += 1
                 time.sleep(random.uniform(5, 15))
@@ -545,7 +568,7 @@ class Crawler:
                         "ERROR",
                         f"WebDriver error (Connection Refused) while crawling {base_url}: {e}. "
                         f"Skipping further crawling for this branch.",
-                        debug_only=False
+                        debug_only=True
                     )
                     raise ConnectionRefusedForCrawlerError(base_url)
                 else:
@@ -553,7 +576,7 @@ class Crawler:
                         "WARNING",
                         f"Non-connection-refused WebDriver error while crawling {base_url}: {e}. "
                         f"Retrying ({retries - attempt - 1} attempts left).",
-                        debug_only=False,
+                        debug_only=True,
                     )
                 attempt += 1
                 time.sleep(random.uniform(5, 15))
@@ -562,7 +585,7 @@ class Crawler:
                     "ERROR",
                     f"Unexpected error while crawling {base_url}: {e}. "
                     f"Retrying ({retries - attempt - 1} attempts left).",
-                    debug_only=False,
+                    debug_only=True,
                 )
                 attempt += 1
                 time.sleep(random.uniform(2, 10))
@@ -570,11 +593,11 @@ class Crawler:
         log_message(
             "ERROR",
             f"Failed to retrieve {base_url} after {retries} attempts.",
-            debug_only=False,
+            debug_only=True,
         )
         return set(), []
 
-    def _try_requests_first(self, url):
+    def _try_requests_first(self, url, initial_url_path: str):
         """Attempt to fetch page with requests before using Selenium."""
         try:
             session = get_requests_session()
@@ -602,8 +625,26 @@ class Crawler:
                 clean = normalize_url(full)
                 parsed = urlparse(clean)
                 root = get_root_domain(parsed.netloc)
+                clean_url_path = parsed.path
 
-                if (root == base_root or SETTINGS["allow_external_links"]) and not is_irrelevant_link(clean):
+                is_valid_domain = (root == base_root or SETTINGS["allow_external_links"])
+                is_not_irrelevant_extension = not is_irrelevant_link(clean)
+
+                passes_sideways_restriction = True
+                if SETTINGS["restrict_sideways_crawling"]:
+                    effective_initial_path = initial_url_path if initial_url_path.endswith('/') else initial_url_path + '/'
+                    passes_sideways_restriction = clean_url_path.startswith(effective_initial_path)
+
+                passes_backwards_restriction = True
+                if SETTINGS["restrict_backwards_crawling"]:
+                    if initial_url_path != '/':
+                        if clean_url_path == '/' or initial_url_path.startswith(clean_url_path + '/'):
+                             if clean_url_path == '/' and initial_url_path != '/':
+                                passes_backwards_restriction = False
+                             elif initial_url_path.startswith(clean_url_path + '/'):
+                                passes_backwards_restriction = False
+
+                if is_valid_domain and is_not_irrelevant_extension and passes_sideways_restriction and passes_backwards_restriction:
                     links.add(clean)
                     if SETTINGS["enable_visual_tree_generation"]:
                         relationships.append((url, clean))
@@ -613,26 +654,25 @@ class Crawler:
         except Exception:
             return None
 
-    def crawl_single_page(self, url_to_crawl: str):
+    def crawl_single_page(self, url_to_crawl: str, initial_url_path: str):
         """Try fast requests-based crawl first, then fall back to Selenium."""
-        fast_result = self._try_requests_first(url_to_crawl)
+        fast_result = self._try_requests_first(url_to_crawl, initial_url_path)
         if fast_result:
             return fast_result
 
         driver = self.webdriver_manager.create_driver()
         try:
-            return self._get_links_from_page_content(url_to_crawl, driver)
+            return self._get_links_from_page_content(url_to_crawl, driver, initial_url_path)
         except ConnectionRefusedForCrawlerError as e:
-            # Re-raise the exception to be caught by the coordinator
             raise e
         finally:
             self.webdriver_manager.destroy_driver(driver)
 
-
-# =========================
-# Archiver
-# =========================
-
+'''
+=========================
+Archiver
+=========================
+'''
 class Archiver:
     """Handles Wayback Machine archiving with cooldown and rate limiting."""
 
@@ -652,7 +692,7 @@ class Archiver:
     def should_archive(self, url: str):
         """Determine if URL should be archived based on cooldown and global action."""
         user_agent = generate_random_user_agent()
-        _ = get_requests_session()  # kept for parity; session not passed to waybackpy
+        _ = get_requests_session()  
         wayback = waybackpy.Url(url, user_agent)
 
         if self.global_archive_action == "a":
@@ -729,7 +769,6 @@ class Archiver:
             with archive_lock:
                 now = time.time()
 
-                # Check for global rate limit imposed by another thread
                 if now < rate_limit_active_until_time:
                     sleep_duration = rate_limit_active_until_time - now
                     log_message(
@@ -739,9 +778,8 @@ class Archiver:
                     )
                     time.sleep(sleep_duration)
 
-                now = time.time() # Re-evaluate now after potential global sleep
+                now = time.time() 
 
-                # Check for proactive individual archive delay
                 elapsed = now - last_archive_time
                 if elapsed < MIN_ARCHIVE_DELAY_SECONDS:
                     sleep_duration = MIN_ARCHIVE_DELAY_SECONDS - elapsed
@@ -752,41 +790,45 @@ class Archiver:
                     )
                     time.sleep(sleep_duration)
 
-                last_archive_time = time.time() # Update last_archive_time right before attempt
+                last_archive_time = time.time() 
 
-            # --- Start of timeout logic for wb_obj.save() ---
-            archive_result = [] # A list to hold the result or exception from the archiving thread
+            archive_result = [] 
 
             def _save_target():
                 try:
                     wb_obj.save()
-                    archive_result.append(True) # Indicate success
+                    archive_result.append(True) 
                 except Exception as e:
                     archive_result.append(e) # Store exception
 
             archive_thread = threading.Thread(target=_save_target)
-            archive_thread.daemon = True # Set as daemon to prevent blocking shutdown
+            archive_thread.daemon = True 
             archive_thread.start()
             archive_thread.join(timeout=SETTINGS['archive_timeout_seconds'])
 
             if archive_thread.is_alive():
                 log_message(
                     "INFO",
-                    f"Archiving {link} timed out after {SETTINGS['archive_timeout_seconds']} seconds. Skipping this attempt.",
-                    debug_only=False
+                    f"Archiving {link} timed out after {SETTINGS['archive_timeout_seconds']} seconds. "
+                    f"Retrying ({retries - 1} attempts left).",
+                    debug_only=True
                 )
-                return "FAILED", link # Immediately return FAILED on timeout
+                retries -= 1
+                if retries == 0:
+                    return "FAILED", link
+                else:
+                    time.sleep(random.uniform(5, 10)) 
+                    continue 
             else:
-                # The thread completed, check its result
                 if archive_result and archive_result[0] is True:
-                    return "ARCHIVED", link # Return status and URL
+                    return "ARCHIVED", link 
                 elif archive_result and isinstance(archive_result[0], Exception):
                     e = archive_result[0] # Get the exception
                     error_message = str(e)
                     rate_limit_keyword = (
                         "Save request refused by the server. Save Page Now limits saving 15 URLs per minutes."
                     )
-                    retries -= 1
+                    retries -= 1 
                     if rate_limit_keyword in error_message and retries > 0:
                         with archive_lock: # Protect update to global rate_limit_active_until_time
                             log_message(
@@ -805,9 +847,9 @@ class Archiver:
                             f"Could not save {link}: {e}. Retrying ({retries} attempts left)...",
                             debug_only=True
                         )
-                        time.sleep(2)
+                        time.sleep(random.uniform(2, 5)) # Small sleep, honk shoo, honk shoo https://cdn.wikirby.com/1/10/KRtDLD_Sleep.png
                     else:
-                        return "FAILED", link # Return status and URL
+                        return "FAILED", link 
                 else:
                     retries -= 1
                     log_message(
@@ -815,15 +857,15 @@ class Archiver:
                         f"Archiving thread for {link} finished unexpectedly without result. Retrying ({retries} attempts left)...",
                         debug_only=True
                     )
-                    time.sleep(2) # Short delay before next retry
+                    time.sleep(random.uniform(2, 5)) 
 
-        return "FAILED", link # Return status and URL
+        return "FAILED", link 
 
-
-# =========================
-# Visual Graph Builder
-# =========================
-
+'''
+=========================
+  Visual Graph Builder
+=========================
+'''
 class VisualGraphBuilder:
     """Builds and optionally displays a link graph using networkx."""
 
@@ -860,10 +902,11 @@ class VisualGraphBuilder:
         plt.tight_layout()
         plt.show()
 
-
-# =========================
-# Crawl Coordinator
-# =========================
+'''
+=========================
+   Crawl Coordinator
+=========================
+'''
 
 class CrawlCoordinator:
     """Coordinates crawling and archiving with concurrency and queues."""
@@ -877,14 +920,16 @@ class CrawlCoordinator:
         self.crawling_queue = deque()
         self.queue_for_archiving = deque()
         self.visited_urls = set()
-        self.crawling_futures_set = set() # Store (Future, url, root_domain) tuples
-        self.archiving_futures_set = set() # Store (Future, url) tuples
+        self.crawling_futures_set = set()
+        self.archiving_futures_set = set() 
         self.skipped_root_domains = set()
+        self.initial_url_path = None 
 
         # Archiving stats
         self.archived_count = 0
         self.skipped_count = 0
         self.failed_count = 0
+        self.total_links_to_archive = 0
 
         self._resolve_worker_counts()
 
@@ -915,23 +960,31 @@ class CrawlCoordinator:
     def add_initial_urls(self, urls):
         """Normalize and enqueue initial URLs for crawling and archiving."""
         for url in urls:
-            # If prefix is missing,  http:// as a default
-            if not (url.startswith("http://") or url.startswith("https://")):
+            parsed_url = urlparse(url)
+            # If scheme is empty, append http://
+            if not parsed_url.scheme:
                 url = "http://" + url
                 log_message("INFO", f"Prepending 'http://' to URL: {url}", debug_only=True)
 
-            if not url.startswith("http"):
+            parsed_url_with_scheme = urlparse(url)
+            if not parsed_url_with_scheme.scheme or not parsed_url_with_scheme.netloc:
                 log_message("WARNING", f"Invalid URL format for {url}. Skipping.", debug_only=False)
                 continue
 
             normalized_url = normalize_url(url)
             root_domain = get_root_domain(urlparse(normalized_url).netloc)
 
+            if self.initial_url_path is None:
+                self.initial_url_path = urlparse(normalized_url).path
+                if self.initial_url_path != '/' and not self.initial_url_path.endswith('/'):
+                    self.initial_url_path += '/'
+
             if normalized_url not in self.visited_urls:
-                log_message("INFO", f"Adding initial URL to queues: {normalized_url}", debug_only=False)
+                log_message("INFO", f"Starting with URLs: {normalized_url}", debug_only=False)
                 self.visited_urls.add(normalized_url)
-                self.crawling_queue.append((normalized_url, root_domain))
+                self.crawling_queue.append((normalized_url, root_domain, self.initial_url_path))
                 self.queue_for_archiving.append(normalized_url)
+        self.total_links_to_archive = len(self.queue_for_archiving)
 
     def _submit_crawl_tasks(self, executor):
         """Submit crawl tasks while respecting queue and skipped domains and worker limits."""
@@ -939,7 +992,7 @@ class CrawlCoordinator:
             self.crawling_queue
             and (self.max_crawler_workers is None or len(self.crawling_futures_set) < self.max_crawler_workers)
         ):
-            url, root_domain = self.crawling_queue.popleft()
+            url, root_domain, initial_url_path = self.crawling_queue.popleft()
             if root_domain in self.skipped_root_domains:
                 log_message(
                     "INFO",
@@ -947,15 +1000,15 @@ class CrawlCoordinator:
                     debug_only=True,
                 )
                 continue
-            future = executor.submit(self.crawler.crawl_single_page, url)
-            self.crawling_futures_set.add((future, url, root_domain))
+            future = executor.submit(self.crawler.crawl_single_page, url, initial_url_path)
+            self.crawling_futures_set.add((future, url, root_domain, initial_url_path))
             log_message("INFO", f"Submitted crawl task for: {url}", debug_only=True)
+
     def _submit_archive_tasks(self, executor):
         """Submit archiving tasks for URLs in the archiving queue, respecting worker limits."""
         while (
             self.queue_for_archiving
             and (self.max_archiver_workers is None or len(self.archiving_futures_set) < self.max_archiver_workers)
-            and (SETTINGS["max_archiving_queue_size"] == 0 or len(self.archiving_futures_set) < SETTINGS["max_archiving_queue_size"])
         ):
             url = self.queue_for_archiving.popleft()
             future = executor.submit(self.archiver.process_link_for_archiving, url)
@@ -970,31 +1023,67 @@ class CrawlCoordinator:
             debug_only=True,
         )
 
-        with concurrent.futures.ThreadPoolExecutor(
-            max_workers=self.max_crawler_workers
-        ) as crawler_executor, concurrent.futures.ThreadPoolExecutor(
-            max_workers=self.max_archiver_workers
-        ) as archiver_executor:
+        overall_start_time = time.time()
+        crawl_process_start_time = time.time()
+        archive_process_start_time = time.time()
+        crawling_enabled = True
+        archiving_enabled = True
+
+        crawler_executor = None
+        archiver_executor = None
+
+        try:
+            crawler_executor = concurrent.futures.ThreadPoolExecutor(max_workers=self.max_crawler_workers)
+            archiver_executor = concurrent.futures.ThreadPoolExecutor(max_workers=self.max_archiver_workers)
 
             while True:
-                # Submit new tasks from queues if workers are available
-                self._submit_crawl_tasks(crawler_executor)
-                self._submit_archive_tasks(archiver_executor)
+                current_time = time.time()
 
-                # Check if all queues are empty and all active futures are done
-                if not self.crawling_queue and not self.queue_for_archiving and \
-                   not self.crawling_futures_set and not self.archiving_futures_set:
-                    log_message("INFO", "All crawling and archiving tasks completed.", debug_only=False)
-                    break # All work is done
+                # Check for max crawl runtime
+                if crawling_enabled and SETTINGS["max_crawl_runtime"] > 0 and (current_time - crawl_process_start_time) > SETTINGS["max_crawl_runtime"]:
+                    log_message("INFO", f"Max crawling runtime of {SETTINGS['max_crawl_runtime']} seconds reached. Stopping new crawl tasks and cancelling active ones.", debug_only=False)
+                    crawling_enabled = False
+                    for future, url, root_domain, initial_url_path in list(self.crawling_futures_set): 
+                        if not future.done():
+                            future.cancel()
+                            log_message("DEBUG", f"Cancelled running/pending crawl task for {url}", debug_only=True)
+                    self.crawling_futures_set.clear() 
+                    self.crawling_queue.clear()
+
+                if archiving_enabled and SETTINGS["max_archive_runtime"] > 0 and (current_time - archive_process_start_time) > SETTINGS["max_archive_runtime"]:
+                    log_message("INFO", f"Max archiving runtime of {SETTINGS['max_archive_runtime']} seconds reached. Stopping new archive tasks and cancelling active ones.", debug_only=False)
+                    archiving_enabled = False
+                    for future, url in list(self.archiving_futures_set): 
+                        if not future.done():
+                            future.cancel()
+                            log_message("DEBUG", f"Cancelled running/pending archive task for {url}", debug_only=True)
+                    self.archiving_futures_set.clear() # Clear all archive futures
+                    self.queue_for_archiving.clear()
+
+                # Submit new tasks from queues if workers are available and not disabled
+                if crawling_enabled:
+                    self._submit_crawl_tasks(crawler_executor)
+                if archiving_enabled:
+                    self._submit_archive_tasks(archiver_executor)
+
+                all_crawling_done = (not crawling_enabled) or (not self.crawling_queue and not self.crawling_futures_set)
+                all_archiving_done = (not archiving_enabled) or (not self.queue_for_archiving and not self.archiving_futures_set)
+
+                if all_crawling_done and all_archiving_done:
+                    log_message("INFO", "All crawling and archiving tasks completed or stopped by runtime limits.", debug_only=False)
+                    break
 
                 # Collect all active futures to wait on
                 all_active_futures = {f_info[0] for f_info in self.crawling_futures_set} | \
                                      {f_info[0] for f_info in self.archiving_futures_set}
 
                 if not all_active_futures:
-                    # This can happen if all workers are busy but more tasks are in queue,
-                    # or if there's a momentary lull before new tasks are submitted.
-                    # Sleep briefly to avoid busy-waiting.
+                    '''
+                    If there are no active futures but we haven't broken the loop, it means
+                    either crawling_enabled/archiving_enabled is True but queues are empty (waiting for new input)
+                    or both are disabled but there are no futures to process (already handled by break condition).
+                    Sleep briefly to avoid busy-waiting.
+                    '''
                     time.sleep(0.1)
                     continue
 
@@ -1009,44 +1098,57 @@ class CrawlCoordinator:
                 for future in done_futures:
                     # Check if it's a crawling future
                     found_and_processed = False
-                    for cf_info in list(self.crawling_futures_set): # Iterate over a copy to allow modification
+                    for cf_info in list(self.crawling_futures_set): 
                         if cf_info[0] == future:
                             self.crawling_futures_set.remove(cf_info)
-                            url, current_branch_root = cf_info[1], cf_info[2]
+                            if future.cancelled():
+                                log_message("DEBUG", f"Skipping cancelled crawl task.", debug_only=True)
+                                found_and_processed = True
+                                break
+
+                            url, current_branch_root, initial_url_path = cf_info[1], cf_info[2], cf_info[3]
                             try:
                                 links_on_page, relationships_on_page = future.result()
                                 log_message("DEBUG", f"Crawl task for {url} completed.", debug_only=True)
                                 if SETTINGS["enable_visual_tree_generation"]:
                                     self.graph_builder.add_relationships(relationships_on_page)
 
-                                # Enqueue discovered links: Treat every link as a potential new branch
-                                for link in links_on_page:
-                                    if link not in self.visited_urls:
-                                        self.visited_urls.add(link)
+                                if crawling_enabled: # Only enqueue new links if crawling is stilll enabled
+                                    for link in links_on_page:
+                                        if link not in self.visited_urls:
+                                            self.visited_urls.add(link)
 
-                                        # Determine the root domain for this specific link
-                                        link_root_domain = get_root_domain(urlparse(link).netloc)
+                                            # Determine the root domain for this specific link
+                                            link_root_domain = get_root_domain(urlparse(link).netloc)
 
-                                        # Add to crawling queue with its own root domain context
-                                        self.crawling_queue.append((link, link_root_domain))
-                                        self.queue_for_archiving.append(link)
-                                        log_message("DEBUG", f"Branching to: {link_root_domain} via {link}", debug_only=True)
+                                            self.crawling_queue.append((link, link_root_domain, initial_url_path))
+                                            self.queue_for_archiving.append(link)
+                                            self.total_links_to_archive += 1
+                                            log_message("DEBUG", f"Branching to: {link_root_domain} via {link}", debug_only=True)
                             except ConnectionRefusedForCrawlerError:
                                 log_message("INFO", f"Marking branch {current_branch_root} as skipped due to connection refused.", debug_only=False)
                                 self.skipped_root_domains.add(current_branch_root)
+                            except concurrent.futures.CancelledError:
+                                log_message("DEBUG", f"Crawl task for {url} was cancelled.", debug_only=True)
                             except Exception as e:
                                 log_message("ERROR", f"Error while crawling {url}: {e}", debug_only=False)
                             found_and_processed = True
-                            break # Found and processed this crawling future
+                            break 
 
                     if found_and_processed:
                         continue
-
-                    # If not a crawling future, check if it's an archiving future
                     for af_info in list(self.archiving_futures_set):
                         if af_info[0] == future:
                             self.archiving_futures_set.remove(af_info)
+                            if future.cancelled():
+                                log_message("DEBUG", f"Skipping cancelled archive task.", debug_only=True)
+                                break
+
                             url = af_info[1]
+
+                            status = "FAILED" # Default status in case of exception
+                            result_url = url 
+
                             try:
                                 status, result_url = future.result()
                                 if status == "ARCHIVED":
@@ -1055,15 +1157,60 @@ class CrawlCoordinator:
                                     self.skipped_count += 1
                                 elif status == "FAILED":
                                     self.failed_count += 1
-                                log_message("INFO", f"[{status}] {result_url}", debug_only=False)
 
+                                processed = self.archived_count + self.skipped_count + self.failed_count
+                                progress_suffix = ""
+                                if self.total_links_to_archive > 0:
+                                    progress_percent = (processed / self.total_links_to_archive) * 100
+                                    progress_suffix = f" ({processed}/{self.total_links_to_archive} {progress_percent:.2f}%)"
+                                else:
+                                    progress_suffix = f" ({processed} links processed)"
+
+                                log_message("INFO", f"[{status}] {result_url}{progress_suffix}", debug_only=False)
+
+                            except concurrent.futures.CancelledError:
+                                log_message("DEBUG", f"Archive task for {url} was cancelled.", debug_only=True)
                             except Exception as e:
                                 self.failed_count += 1
-                                log_message("ERROR", f"Error while archiving {url}: {e}", debug_only=True)
-                            break # Found and processed this archiving future
+                                processed = self.archived_count + self.skipped_count + self.failed_count
+                                progress_suffix = ""
+                                if self.total_links_to_archive > 0:
+                                    progress_percent = (processed / self.total_links_to_archive) * 100
+                                    progress_suffix = f" ({processed}/{self.total_links_to_archive} {progress_percent:.2f}%)"
+                                else:
+                                    progress_suffix = f" ({processed} links processed)"
 
-        # Finalize
+                                log_message("ERROR", f"Error while archiving {url}: {e}{progress_suffix}", debug_only=True)
+                            break
+
+        finally:
+            # Ensure executors are shut down cleanly even if loop breaks unexpectedly
+            if crawler_executor is not None:
+                crawler_executor.shutdown(wait=True)
+            if archiver_executor is not None:
+                archiver_executor.shutdown(wait=True)
+            log_message("INFO", "Executors shut down.", debug_only=True)
+
         self.graph_builder.build_and_show()
+
+        end_time = time.time()
+        duration = end_time - overall_start_time
+
+        # Format duration into days, hours, minutes, and seconds
+        days = int(duration // (24 * 3600))
+        remaining_seconds = duration % (24 * 3600)
+        hours = int(remaining_seconds // 3600)
+        remaining_seconds %= 3600
+        minutes = int(remaining_seconds // 60)
+        final_seconds = remaining_seconds % 60
+
+        duration_str_list = []
+        duration_str_list.append(f"{days}d")
+        duration_str_list.append(f"{hours}h")
+        duration_str_list.append(f"{minutes}m")
+        duration_str_list.append(f"{final_seconds:.2f}s")
+
+        duration_str = ' '.join(duration_str_list)
 
         print("\n========== Archiving Summary ==========")
         total = self.archived_count + self.skipped_count + self.failed_count
@@ -1071,18 +1218,24 @@ class CrawlCoordinator:
         print(f"URLs Archived: {self.archived_count}")
         print(f"URLs Skipped: {self.skipped_count}")
         print(f"URLs Failed: {self.failed_count}")
+        print(f"Total Run Time: {duration_str}")
         print("=======================================")
-
-# =========================
-# Main Entry Point
-# =========================
+'''
+=========================
+          Main
+=========================
+'''
 
 def main():
     """Main function to orchestrate crawling and archiving."""
     clear_output(wait=True)
 
+    if not SETTINGS["debug_mode"]:
+        logging.getLogger('urllib3').setLevel(logging.CRITICAL)
+        logging.getLogger('urllib3.connectionpool').setLevel(logging.CRITICAL)
+
     target_urls_input = input(
-        "Enter URLs (comma-separated, e.g., https://notawebsite.org/, https://example.com/): "
+        "Enter URLs (comma separated, e.g., https://notawebsite.org/, example.com): "
 
     ).strip()
     initial_urls_raw = [
