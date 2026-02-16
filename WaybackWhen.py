@@ -19,6 +19,7 @@ import warnings
 import random
 import os
 import logging
+import sys
 
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
@@ -334,13 +335,42 @@ class WebDriverManager:
     def create_driver(self) -> webdriver.Chrome:
         """Create and configure a headless Chrome WebDriver with stealth."""
         options = Options()
-        options.add_argument("--headless")
+        options.add_argument("--headless=new")
         options.add_argument("--no-sandbox")
         options.add_argument("--disable-dev-shm-usage")
         options.add_argument("--disable-gpu")
-
-        if os.name == 'posix' and os.path.exists('/usr/bin/google-chrome'):
-            options.binary_location = '/usr/bin/google-chrome'
+        browser_paths = [
+            '/usr/bin/chromium',
+            '/usr/bin/chromium-browser',
+            '/snap/bin/chromium',
+            '/usr/bin/google-chrome',
+            '/usr/bin/google-chrome-stable',
+            '/snap/bin/google-chrome'
+        ]
+        for path in browser_paths:
+            if os.path.exists(path):
+                options.binary_location = path
+                break
+        else:
+            try:
+                import subprocess
+                result = subprocess.run(['which', 'chromium-browser'], 
+                                    stdout=subprocess.PIPE, 
+                                    stderr=subprocess.DEVNULL,
+                                    text=True)
+                if result.returncode == 0 and result.stdout.strip():
+                    options.binary_location = result.stdout.strip()
+                    log_message("DEBUG", f"Found chromium-browser at: {result.stdout.strip()}", debug_only=True)
+                else:
+                    result = subprocess.run(['which', 'google-chrome'],
+                                        stdout=subprocess.PIPE,
+                                        stderr=subprocess.DEVNULL,
+                                        text=True)
+                    if result.returncode == 0 and result.stdout.strip():
+                        options.binary_location = result.stdout.strip()
+                        log_message("DEBUG", f"Found google-chrome at: {result.stdout.strip()}", debug_only=True)
+            except Exception as e:
+                log_message("DEBUG", f"Could not determine browser path automatically: {e}", debug_only=True)
 
         if SETTINGS["proxies"]:
             proxy = random.choice(SETTINGS["proxies"])
@@ -355,8 +385,20 @@ class WebDriverManager:
         }
         options.add_experimental_option("prefs", prefs)
 
-        service = ChromeService(executable_path=ChromeDriverManager().install())
-        driver = webdriver.Chrome(service=service, options=options)
+        try:
+            driver = webdriver.Chrome(options=options)
+        except Exception as e:
+            log_message("DEBUG", f"System ChromeDriver failed, trying ChromeDriverManager: {str(e)}", debug_only=True)
+            try:
+                service = ChromeService(ChromeDriverManager().install())
+                driver = webdriver.Chrome(service=service, options=options)
+            except Exception as e2:
+                log_message("ERROR", f"Failed to create WebDriver: {str(e2)}", debug_only=False)
+                try:
+                    driver = webdriver.Chrome(service=None, options=options)
+                except Exception as e3:
+                    log_message("CRITICAL", f"All WebDriver creation attempts failed: {str(e3)}", debug_only=False)
+                    raise
 
         stealth(
             driver,
@@ -799,7 +841,7 @@ class Archiver:
                     wb_obj.save()
                     archive_result.append(True) 
                 except Exception as e:
-                    archive_result.append(e) # Store exception
+                    archive_result.append(e) 
 
             archive_thread = threading.Thread(target=_save_target)
             archive_thread.daemon = True 
@@ -837,9 +879,7 @@ class Archiver:
                                 f"Pausing for 1 minute and activating global cooldown ({retries} attempts left).",
                                 debug_only=True,
                             )
-                            # Set global cooldown for 60 seconds
                             rate_limit_active_until_time = time.time() + 60
-                        # This sleep is for the *current* thread that hit the rate limit
                         time.sleep(60)
                     elif retries > 0:
                         log_message(
@@ -924,12 +964,13 @@ class CrawlCoordinator:
         self.archiving_futures_set = set() 
         self.skipped_root_domains = set()
         self.initial_url_path = None 
-
-        # Archiving stats
         self.archived_count = 0
         self.skipped_count = 0
         self.failed_count = 0
         self.total_links_to_archive = 0
+        self.is_paused = False
+        self.should_stop = False
+        self.pause_lock = threading.Lock()
 
         self._resolve_worker_counts()
 
@@ -937,13 +978,13 @@ class CrawlCoordinator:
         """Resolve max workers for crawler and archiver based on SETTINGS."""
         max_crawler_workers_setting = SETTINGS["max_crawler_workers"]
         if max_crawler_workers_setting == 0:
-            self.max_crawler_workers = None # None implies unlimited
+            self.max_crawler_workers = None  
         else:
             self.max_crawler_workers = max_crawler_workers_setting
 
         max_archiver_workers_setting = SETTINGS["max_archiver_workers"]
         if max_archiver_workers_setting == 0:
-            self.max_archiver_workers = None # None implies unlimited
+            self.max_archiver_workers = None 
         else:
             self.max_archiver_workers = max_archiver_workers_setting
 
@@ -986,11 +1027,57 @@ class CrawlCoordinator:
                 self.queue_for_archiving.append(normalized_url)
         self.total_links_to_archive = len(self.queue_for_archiving)
 
+    def add_url_live(self, url: str):
+        """Add a URL to be crawled while the crawler is running."""
+        parsed_url = urlparse(url)
+        if not parsed_url.scheme:
+            url = "http://" + url
+            log_message("INFO", f"Prepending 'http://' to URL: {url}", debug_only=True)
+
+        parsed_url_with_scheme = urlparse(url)
+        if not parsed_url_with_scheme.scheme or not parsed_url_with_scheme.netloc:
+            log_message("WARNING", f"Invalid URL format for {url}. Skipping.", debug_only=False)
+            return
+
+        normalized_url = normalize_url(url)
+        root_domain = get_root_domain(parsed_url_with_scheme.netloc)
+
+        if self.initial_url_path is None:
+            self.initial_url_path = parsed_url_with_scheme.path
+            if self.initial_url_path != '/' and not self.initial_url_path.endswith('/'):
+                self.initial_url_path += '/'
+
+        if normalized_url not in self.visited_urls:
+            log_message("INFO", f"Adding URL while running: {normalized_url}", debug_only=False)
+            self.visited_urls.add(normalized_url)
+            self.crawling_queue.append((normalized_url, root_domain, self.initial_url_path))
+            self.queue_for_archiving.append(normalized_url)
+            self.total_links_to_archive += 1
+
+    def pause(self):
+        """Pause the crawling and archiving process."""
+        with self.pause_lock:
+            self.is_paused = True
+            log_message("INFO", "Crawling and archiving paused", debug_only=False)
+
+    def resume(self):
+        """Resume the crawling and archiving process."""
+        with self.pause_lock:
+            self.is_paused = False
+            log_message("INFO", "Crawling and archiving resumed", debug_only=False)
+
+    def stop(self):
+        """Stop the crawling and archiving process."""
+        self.should_stop = True
+        log_message("INFO", "Stopping crawling and archiving", debug_only=False)
+
     def _submit_crawl_tasks(self, executor):
         """Submit crawl tasks while respecting queue and skipped domains and worker limits."""
         while (
             self.crawling_queue
             and (self.max_crawler_workers is None or len(self.crawling_futures_set) < self.max_crawler_workers)
+            and not self.is_paused
+            and not self.should_stop
         ):
             url, root_domain, initial_url_path = self.crawling_queue.popleft()
             if root_domain in self.skipped_root_domains:
@@ -1009,6 +1096,8 @@ class CrawlCoordinator:
         while (
             self.queue_for_archiving
             and (self.max_archiver_workers is None or len(self.archiving_futures_set) < self.max_archiver_workers)
+            and not self.is_paused
+            and not self.should_stop
         ):
             url = self.queue_for_archiving.popleft()
             future = executor.submit(self.archiver.process_link_for_archiving, url)
@@ -1036,10 +1125,11 @@ class CrawlCoordinator:
             crawler_executor = concurrent.futures.ThreadPoolExecutor(max_workers=self.max_crawler_workers)
             archiver_executor = concurrent.futures.ThreadPoolExecutor(max_workers=self.max_archiver_workers)
 
-            while True:
+            while not self.should_stop:
+                while self.is_paused and not self.should_stop:
+                    time.sleep(0.5)
+                    continue
                 current_time = time.time()
-
-                # Check for max crawl runtime
                 if crawling_enabled and SETTINGS["max_crawl_runtime"] > 0 and (current_time - crawl_process_start_time) > SETTINGS["max_crawl_runtime"]:
                     log_message("INFO", f"Max crawling runtime of {SETTINGS['max_crawl_runtime']} seconds reached. Stopping new crawl tasks and cancelling active ones.", debug_only=False)
                     crawling_enabled = False
@@ -1057,7 +1147,7 @@ class CrawlCoordinator:
                         if not future.done():
                             future.cancel()
                             log_message("DEBUG", f"Cancelled running/pending archive task for {url}", debug_only=True)
-                    self.archiving_futures_set.clear() # Clear all archive futures
+                    self.archiving_futures_set.clear()
                     self.queue_for_archiving.clear()
 
                 # Submit new tasks from queues if workers are available and not disabled
@@ -1073,30 +1163,18 @@ class CrawlCoordinator:
                     log_message("INFO", "All crawling and archiving tasks completed or stopped by runtime limits.", debug_only=False)
                     break
 
-                # Collect all active futures to wait on
                 all_active_futures = {f_info[0] for f_info in self.crawling_futures_set} | \
                                      {f_info[0] for f_info in self.archiving_futures_set}
 
                 if not all_active_futures:
-                    '''
-                    If there are no active futures but we haven't broken the loop, it means
-                    either crawling_enabled/archiving_enabled is True but queues are empty (waiting for new input)
-                    or both are disabled but there are no futures to process (already handled by break condition).
-                    Sleep briefly to avoid busy-waiting.
-                    '''
                     time.sleep(0.1)
                     continue
-
-                # Wait for any of the active futures to complete
                 done_futures, _ = concurrent.futures.wait(
                     all_active_futures,
-                    timeout=1, # Periodically check queues for new tasks
+                    timeout=1,
                     return_when=concurrent.futures.FIRST_COMPLETED
                 )
-
-                # Process completed futures
                 for future in done_futures:
-                    # Check if it's a crawling future
                     found_and_processed = False
                     for cf_info in list(self.crawling_futures_set): 
                         if cf_info[0] == future:
@@ -1113,14 +1191,11 @@ class CrawlCoordinator:
                                 if SETTINGS["enable_visual_tree_generation"]:
                                     self.graph_builder.add_relationships(relationships_on_page)
 
-                                if crawling_enabled: # Only enqueue new links if crawling is stilll enabled
+                                if crawling_enabled and not self.is_paused:
                                     for link in links_on_page:
                                         if link not in self.visited_urls:
                                             self.visited_urls.add(link)
-
-                                            # Determine the root domain for this specific link
                                             link_root_domain = get_root_domain(urlparse(link).netloc)
-
                                             self.crawling_queue.append((link, link_root_domain, initial_url_path))
                                             self.queue_for_archiving.append(link)
                                             self.total_links_to_archive += 1
@@ -1137,6 +1212,7 @@ class CrawlCoordinator:
 
                     if found_and_processed:
                         continue
+                        
                     for af_info in list(self.archiving_futures_set):
                         if af_info[0] == future:
                             self.archiving_futures_set.remove(af_info)
@@ -1145,8 +1221,7 @@ class CrawlCoordinator:
                                 break
 
                             url = af_info[1]
-
-                            status = "FAILED" # Default status in case of exception
+                            status = "FAILED"
                             result_url = url 
 
                             try:
@@ -1159,13 +1234,7 @@ class CrawlCoordinator:
                                     self.failed_count += 1
 
                                 processed = self.archived_count + self.skipped_count + self.failed_count
-                                progress_suffix = ""
-                                if self.total_links_to_archive > 0:
-                                    progress_percent = (processed / self.total_links_to_archive) * 100
-                                    progress_suffix = f" ({processed}/{self.total_links_to_archive} {progress_percent:.2f}%)"
-                                else:
-                                    progress_suffix = f" ({processed} links processed)"
-
+                                progress_suffix = f" ({processed}/{self.total_links_to_archive} {processed/self.total_links_to_archive*100:.2f}%)" if self.total_links_to_archive > 0 else f" ({processed} links processed)"
                                 log_message("INFO", f"[{status}] {result_url}{progress_suffix}", debug_only=False)
 
                             except concurrent.futures.CancelledError:
@@ -1173,30 +1242,27 @@ class CrawlCoordinator:
                             except Exception as e:
                                 self.failed_count += 1
                                 processed = self.archived_count + self.skipped_count + self.failed_count
-                                progress_suffix = ""
-                                if self.total_links_to_archive > 0:
-                                    progress_percent = (processed / self.total_links_to_archive) * 100
-                                    progress_suffix = f" ({processed}/{self.total_links_to_archive} {progress_percent:.2f}%)"
-                                else:
-                                    progress_suffix = f" ({processed} links processed)"
-
+                                progress_suffix = f" ({processed}/{self.total_links_to_archive} {processed/self.total_links_to_archive*100:.2f}%)" if self.total_links_to_archive > 0 else f" ({processed} links processed)"
                                 log_message("ERROR", f"Error while archiving {url}: {e}{progress_suffix}", debug_only=True)
                             break
 
+        except KeyboardInterrupt:
+            log_message("INFO", "Keyboard interrupt received. Shutting down...", debug_only=False)
+            self.should_stop = True
         finally:
-            # Ensure executors are shut down cleanly even if loop breaks unexpectedly
             if crawler_executor is not None:
-                crawler_executor.shutdown(wait=True)
+                crawler_executor.shutdown(wait=False)
             if archiver_executor is not None:
-                archiver_executor.shutdown(wait=True)
+                archiver_executor.shutdown(wait=False)
             log_message("INFO", "Executors shut down.", debug_only=True)
 
-        self.graph_builder.build_and_show()
+        if not self.should_stop:
+            self.graph_builder.build_and_show()
 
         end_time = time.time()
         duration = end_time - overall_start_time
 
-        # Format duration into days, hours, minutes, and seconds
+        # Format duration
         days = int(duration // (24 * 3600))
         remaining_seconds = duration % (24 * 3600)
         hours = int(remaining_seconds // 3600)
@@ -1205,9 +1271,12 @@ class CrawlCoordinator:
         final_seconds = remaining_seconds % 60
 
         duration_str_list = []
-        duration_str_list.append(f"{days}d")
-        duration_str_list.append(f"{hours}h")
-        duration_str_list.append(f"{minutes}m")
+        if days > 0:
+            duration_str_list.append(f"{days}d")
+        if hours > 0:
+            duration_str_list.append(f"{hours}h")
+        if minutes > 0:
+            duration_str_list.append(f"{minutes}m")
         duration_str_list.append(f"{final_seconds:.2f}s")
 
         duration_str = ' '.join(duration_str_list)
@@ -1220,6 +1289,7 @@ class CrawlCoordinator:
         print(f"URLs Failed: {self.failed_count}")
         print(f"Total Run Time: {duration_str}")
         print("=======================================")
+
 '''
 =========================
           Main
@@ -1233,10 +1303,13 @@ def main():
     if not SETTINGS["debug_mode"]:
         logging.getLogger('urllib3').setLevel(logging.CRITICAL)
         logging.getLogger('urllib3.connectionpool').setLevel(logging.CRITICAL)
+    if '--gui' in sys.argv:
+        from gui import main as gui_main
+        gui_main()
+        return
 
     target_urls_input = input(
         "Enter URLs (comma separated, e.g., https://notawebsite.org/, example.com): "
-
     ).strip()
     initial_urls_raw = [
         url.strip() for url in target_urls_input.split(",") if url.strip()
