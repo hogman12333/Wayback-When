@@ -42,7 +42,6 @@ except ImportError:
 
 warnings.filterwarnings("ignore", category=XMLParsedAsHTMLWarning)
 
-# Settings file path
 SETTINGS_FILE = "settings.txt"
 
 def load_settings():
@@ -1059,6 +1058,30 @@ class CrawlCoordinator:
         """Stop all crawling and archiving operations."""
         self.should_stop = True
         log_message("INFO", "Stopping crawling and archiving", debug_only=False)
+
+    def reset_state(self):
+        """Reset the coordinator's state while keeping settings and initial URLs"""
+        self.crawling_queue = deque()
+        self.queue_for_archiving = deque()
+        self.visited_urls = set()
+        self.crawling_futures_set = set()
+        self.archiving_futures_set = set()
+        self.skipped_root_domains = set()
+        self.archived_count = 0
+        self.skipped_count = 0
+        self.failed_count = 0
+        self.total_links_to_archive = 0
+        self.is_paused = False
+        self.should_stop = False
+
+    def is_completed(self):
+        """Check if the coordinator has finished processing"""
+        return (not self.crawling_queue and 
+                not self.queue_for_archiving and 
+                not self.crawling_futures_set and 
+                not self.archiving_futures_set and
+                not self.is_paused and
+                not self.should_stop)
 
     def _submit_crawl_tasks(self, executor):
         """Submit crawl tasks while respecting queue and skipped domains and worker limits."""
