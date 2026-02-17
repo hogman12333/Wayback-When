@@ -2,16 +2,17 @@ import sys
 import threading
 import json
 from pathlib import Path
+from collections import deque
 
-from PyQt6.QtCore import QTimer, Qt
+from PyQt6.QtCore import QTimer, Qt, pyqtSignal, QObject
 from PyQt6.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout,
     QListWidget, QPushButton, QLineEdit, QLabel,
     QCheckBox, QSpinBox, QGroupBox, QScrollArea, QTextEdit, 
     QStyleFactory, QDialog, QDialogButtonBox, QMenu, QMenuBar,
-    QStyle
+    QProgressBar, QFrame, QListWidgetItem
 )
-from PyQt6.QtGui import QPalette, QColor, QAction, QIcon
+from PyQt6.QtGui import QPalette, QColor, QAction, QFont, QIcon
 
 from urllib.parse import urlparse
 
@@ -97,6 +98,11 @@ class SettingsDialog(QDialog):
         save_settings()
         self.accept()
 
+class StatusUpdater(QObject):
+    update_status = pyqtSignal(str, str, str, str, str)   
+    update_crawling = pyqtSignal(list)
+    update_archiving = pyqtSignal(list)
+
 class CrawlerGUI(QWidget):
     def __init__(self):
         super().__init__()
@@ -107,13 +113,17 @@ class CrawlerGUI(QWidget):
         self.is_running = False
         self.is_paused = False
         self.dark_mode = SETTINGS.get("dark_mode", False)
-
+        self.status_updater = StatusUpdater()
+        self.status_updater.update_status.connect(self.update_stats)
+        self.status_updater.update_crawling.connect(self.update_crawling_list)
+        self.status_updater.update_archiving.connect(self.update_archiving_list)
+        
         self.init_ui()
         self.apply_theme()
 
     def init_ui(self):
-        self.setWindowTitle("Wayback When")
-        self.resize(1200, 700)
+        self.setWindowTitle("Wayback When - Web Archiver")
+        self.resize(1300, 800)
 
         menubar = QMenuBar(self)
         file_menu = menubar.addMenu("&File")
@@ -126,30 +136,32 @@ class CrawlerGUI(QWidget):
         theme_action.triggered.connect(self.toggle_theme)
         file_menu.addAction(theme_action)
 
-        root = QVBoxLayout()
+        root = QVBoxLayout(self)
         root.setMenuBar(menubar)
-        self.setLayout(root)
+        root.setSpacing(15)
+        root.setContentsMargins(15, 15, 15, 15)
 
         main_layout = QHBoxLayout()
-        main_layout.setSpacing(10)
-        main_layout.setContentsMargins(10, 10, 10, 10)
+        main_layout.setSpacing(15)
+        main_layout.setContentsMargins(0, 0, 0, 0)
         root.addLayout(main_layout)
 
+        # Left sideba
         sidebar = QVBoxLayout()
-        sidebar.setSpacing(10)
+        sidebar.setSpacing(15)
         main_layout.addLayout(sidebar, 1)
 
-        url_group = QGroupBox("")
+        # URL input
+        url_group = QGroupBox("URL Management")
         url_layout = QVBoxLayout()
-        url_layout.setSpacing(8)
+        url_layout.setSpacing(10)
 
         url_row = QHBoxLayout()
         self.url_entry = QLineEdit()
         self.url_entry.setPlaceholderText("Enter URL (e.g., example.com)")
         url_row.addWidget(self.url_entry, 4)
         
-        self.add_url_btn = QPushButton("Add")
-        self.add_url_btn.setFixedWidth(80)
+        self.add_url_btn = QPushButton("Add URL")
         self.add_url_btn.clicked.connect(self.add_url)
         url_row.addWidget(self.add_url_btn, 1)
         
@@ -160,27 +172,23 @@ class CrawlerGUI(QWidget):
         url_layout.addWidget(self.url_list, 2)
         
         control_btn_layout = QHBoxLayout()
-        control_btn_layout.setSpacing(5)
+        control_btn_layout.setSpacing(8)
         
-        self.start_btn = QPushButton("Start")
-        self.start_btn.setFixedWidth(80)
+        self.start_btn = QPushButton("▶ Start")
         self.start_btn.clicked.connect(self.start_crawling)
         control_btn_layout.addWidget(self.start_btn)
         
-        self.pause_btn = QPushButton("Pause")
-        self.pause_btn.setFixedWidth(80)
+        self.pause_btn = QPushButton("⏸ Pause")
         self.pause_btn.clicked.connect(self.pause)
         self.pause_btn.setEnabled(False)
         control_btn_layout.addWidget(self.pause_btn)
         
-        self.resume_btn = QPushButton("Resume")
-        self.resume_btn.setFixedWidth(80)
+        self.resume_btn = QPushButton("⏯ Resume")
         self.resume_btn.clicked.connect(self.resume)
         self.resume_btn.setEnabled(False)
         control_btn_layout.addWidget(self.resume_btn)
         
-        self.stop_btn = QPushButton("Stop")
-        self.stop_btn.setFixedWidth(80)
+        self.stop_btn = QPushButton("⏹ Stop")
         self.stop_btn.clicked.connect(self.stop)
         self.stop_btn.setEnabled(False)
         control_btn_layout.addWidget(self.stop_btn)
@@ -189,9 +197,10 @@ class CrawlerGUI(QWidget):
         url_group.setLayout(url_layout)
         sidebar.addWidget(url_group, 1)
 
-        proxy_group = QGroupBox("")
+        # Proxy input
+        proxy_group = QGroupBox("Proxy Configuration")
         proxy_layout = QVBoxLayout()
-        proxy_layout.setSpacing(8)
+        proxy_layout.setSpacing(10)
         
         proxy_label = QLabel("Proxies (one per line):")
         proxy_layout.addWidget(proxy_label)
@@ -202,14 +211,12 @@ class CrawlerGUI(QWidget):
         proxy_layout.addWidget(self.proxy_text)
         
         proxy_btn_layout = QHBoxLayout()
-        proxy_btn_layout.setSpacing(5)
-        self.save_proxy_btn = QPushButton("Save")
-        self.save_proxy_btn.setFixedWidth(80)
+        proxy_btn_layout.setSpacing(8)
+        self.save_proxy_btn = QPushButton("Save Proxies")
         self.save_proxy_btn.clicked.connect(self.save_proxies)
         proxy_btn_layout.addWidget(self.save_proxy_btn)
         
-        self.clear_proxy_btn = QPushButton("Clear")
-        self.clear_proxy_btn.setFixedWidth(80)
+        self.clear_proxy_btn = QPushButton("Clear Proxies")
         self.clear_proxy_btn.clicked.connect(self.clear_proxies)
         proxy_btn_layout.addWidget(self.clear_proxy_btn)
         
@@ -217,30 +224,64 @@ class CrawlerGUI(QWidget):
         proxy_group.setLayout(proxy_layout)
         sidebar.addWidget(proxy_group)
 
-        stats_box = QGroupBox("")
+        # Stats 
+        stats_group = QGroupBox("Progress Statistics")
         stats_layout = QVBoxLayout()
+        stats_layout.setSpacing(10)
+        
         self.stats = QLabel("Status: Ready | Archived: 0 | Skipped: 0 | Failed: 0 | Total: 0")
+        self.stats.setFont(QFont("Arial", 10, QFont.Weight.Bold))
         stats_layout.addWidget(self.stats)
-        stats_box.setLayout(stats_layout)
-        sidebar.addWidget(stats_box)
+        
+        #Progress bar
+        progress_layout = QVBoxLayout()
+        progress_layout.setSpacing(8)
+        
+        archiving_label = QLabel("Archiving Progress:")
+        self.archiving_progress = QProgressBar()
+        self.archiving_progress.setStyleSheet("""
+            QProgressBar {
+                border: 2px solid grey;
+                border-radius: 5px;
+                text-align: center;
+            }
+            QProgressBar::chunk {
+                background-color: #0096ff;
+                width: 10px;
+                margin: 0.5px;
+            }
+        """)
+        self.archiving_progress.setFormat("%p% (%v/%m)")
+        
+        progress_layout.addWidget(archiving_label)
+        progress_layout.addWidget(self.archiving_progress)
+        
+        stats_layout.addLayout(progress_layout)
+        stats_group.setLayout(stats_layout)
+        sidebar.addWidget(stats_group)
 
+        # right panel
         panel = QVBoxLayout()
-        panel.setSpacing(10)
+        panel.setSpacing(15)
         main_layout.addLayout(panel, 2)
 
-        crawl_group = QGroupBox("")
+        # archiving queue
+        crawl_group = QGroupBox("Crawling Queue")
         crawl_layout = QVBoxLayout()
         self.crawl_list = QListWidget()
+        self.crawl_list.setMaximumHeight(200)
         crawl_layout.addWidget(self.crawl_list)
         crawl_group.setLayout(crawl_layout)
-        panel.addWidget(crawl_group, 1)
+        panel.addWidget(crawl_group)
 
-        archive_group = QGroupBox("")
+        # archiving queue
+        archive_group = QGroupBox("Archiving Queue")
         archive_layout = QVBoxLayout()
         self.archive_list = QListWidget()
+        self.archive_list.setMaximumHeight(200)
         archive_layout.addWidget(self.archive_list)
         archive_group.setLayout(archive_layout)
-        panel.addWidget(archive_group, 1)
+        panel.addWidget(archive_group)
         
         self.update_proxy_display()
         self.apply_theme()
@@ -260,15 +301,15 @@ class CrawlerGUI(QWidget):
         app = QApplication.instance()
         if self.dark_mode:
             dark_palette = QPalette()
-            dark_palette.setColor(QPalette.ColorRole.Window, QColor(45, 45, 48))
-            dark_palette.setColor(QPalette.ColorRole.WindowText, QColor(240, 240, 240))
-            dark_palette.setColor(QPalette.ColorRole.Base, QColor(30, 30, 30))
-            dark_palette.setColor(QPalette.ColorRole.AlternateBase, QColor(45, 45, 48))
-            dark_palette.setColor(QPalette.ColorRole.ToolTipBase, QColor(240, 240, 240))
-            dark_palette.setColor(QPalette.ColorRole.ToolTipText, QColor(240, 240, 240))
-            dark_palette.setColor(QPalette.ColorRole.Text, QColor(240, 240, 240))
-            dark_palette.setColor(QPalette.ColorRole.Button, QColor(45, 45, 48))
-            dark_palette.setColor(QPalette.ColorRole.ButtonText, QColor(240, 240, 240))
+            dark_palette.setColor(QPalette.ColorRole.Window, QColor(30, 30, 30))
+            dark_palette.setColor(QPalette.ColorRole.WindowText, QColor(220, 220, 220))
+            dark_palette.setColor(QPalette.ColorRole.Base, QColor(25, 25, 25))
+            dark_palette.setColor(QPalette.ColorRole.AlternateBase, QColor(35, 35, 35))
+            dark_palette.setColor(QPalette.ColorRole.ToolTipBase, QColor(220, 220, 220))
+            dark_palette.setColor(QPalette.ColorRole.ToolTipText, QColor(220, 220, 220))
+            dark_palette.setColor(QPalette.ColorRole.Text, QColor(220, 220, 220))
+            dark_palette.setColor(QPalette.ColorRole.Button, QColor(45, 45, 45))
+            dark_palette.setColor(QPalette.ColorRole.ButtonText, QColor(220, 220, 220))
             dark_palette.setColor(QPalette.ColorRole.BrightText, Qt.GlobalColor.red)
             dark_palette.setColor(QPalette.ColorRole.Highlight, QColor(0, 122, 204))
             dark_palette.setColor(QPalette.ColorRole.HighlightedText, Qt.GlobalColor.white)
@@ -278,44 +319,45 @@ class CrawlerGUI(QWidget):
             
             self.setStyleSheet("""
                 QWidget {
+                    font-family: "Segoe UI", Arial, sans-serif;
                     font-size: 11pt;
-                    color: #d4d4d4;
-                    background-color: #2d2d30;
+                    color: #e0e0e0;
+                    background-color: #1e1e1e;
                 }
                 QGroupBox {
-                    border: 1px solid #3f3f46;
-                    border-radius: 15px;
-                    margin-top: 0.5em;
-                    padding-top: 10px;
-                    background-color: #2d2d30;
+                    border: 1px solid #404040;
+                    border-radius: 8px;
+                    margin-top: 1em;
+                    padding-top: 15px;
+                    background-color: #252526;
                 }
                 QGroupBox::title {
                     subcontrol-origin: margin;
                     left: 10px;
-                    padding: 0 6px 0 6px;
-                    color: #e1e1e1;
-                    background-color: transparent;
+                    padding: 0 8px 0 8px;
+                    color: #00ccff;
+                    font-weight: bold;
                 }
                 QListWidget, QTextEdit, QLineEdit {
-                    background-color: #252526;
-                    color: #d4d4d4;
-                    border: 1px solid #3f3f46;
-                    border-radius: 3px;
-                    padding: 4px;
-                    selection-background-color: #007acc;
+                    background-color: #2d2d30;
+                    color: #e0e0e0;
+                    border: 1px solid #404040;
+                    border-radius: 4px;
+                    padding: 6px;
+                    selection-background-color: #0078d7;
                     selection-color: white;
                 }
                 QPushButton {
                     background-color: #333337;
-                    color: #d4d4d4;
-                    border: 1px solid #3f3f46;
-                    border-radius: 3px;
-                    padding: 5px 10px;
-                    min-width: 80px;
+                    color: #e0e0e0;
+                    border: 1px solid #404040;
+                    border-radius: 4px;
+                    padding: 8px 12px;
+                    font-weight: bold;
                 }
                 QPushButton:hover {
-                    background-color: #2a2a2f;
-                    border-color: #5f5f67;
+                    background-color: #3a3a3d;
+                    border-color: #00ccff;
                 }
                 QPushButton:pressed {
                     background-color: #1e1e1e;
@@ -325,9 +367,9 @@ class CrawlerGUI(QWidget):
                     background-color: #2d2d30;
                 }
                 QMenuBar {
-                    background-color: #2d2d30;
-                    color: #d4d4d4;
-                    border-bottom: 1px solid #3f3f46;
+                    background-color: #252526;
+                    color: #e0e0e0;
+                    border-bottom: 1px solid #404040;
                 }
                 QMenuBar::item {
                     background-color: transparent;
@@ -338,64 +380,89 @@ class CrawlerGUI(QWidget):
                 }
                 QMenu {
                     background-color: #2d2d30;
-                    color: #d4d4d4;
-                    border: 1px solid #3f3f46;
+                    color: #e0e0e0;
+                    border: 1px solid #404040;
                 }
                 QMenu::item:selected {
                     background-color: #3e3e40;
                 }
                 QScrollBar:vertical {
-                    border: 1px solid #3f3f46;
+                    border: 1px solid #404040;
                     background: #2d2d30;
-                    width: 12px;
+                    width: 15px;
+                    margin: 0;
+                }
+                QScrollBar:horizontal {
+                    border: 1px solid #404040;
+                    background: #2d2d30;
+                    height: 15px;
                     margin: 0;
                 }
                 QScrollBar::handle:vertical {
                     background: #3e3e40;
                     min-height: 20px;
-                    border-radius: 5px;
+                    border-radius: 7px;
                 }
-                QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+                QScrollBar::handle:horizontal {
+                    background: #3e3e40;
+                    min-width: 20px;
+                    border-radius: 7px;
+                }
+                QScrollBar::add-line, QScrollBar::sub-line {
                     height: 0;
+                    width: 0;
+                }
+                QProgressBar {
+                    border: 1px solid #404040;
+                    border-radius: 4px;
+                    text-align: center;
+                    background-color: #2d2d30;
+                }
+                QProgressBar::chunk {
+                    border-radius: 3px;
                 }
             """)
         else:
             app.setPalette(QApplication.style().standardPalette())
             self.setStyleSheet("""
                 QWidget {
+                    font-family: "Segoe UI", Arial, sans-serif;
                     font-size: 11pt;
+                    color: #333;
                 }
                 QGroupBox {
                     border: 1px solid #c0c0c0;
-                    border-radius: 5px;
-                    margin-top: 0.5em;
-                    padding-top: 10px;
-                    background-color: white;
+                    border-radius: 8px;
+                    margin-top: 1em;
+                    padding-top: 15px;
+                    background-color: #fafafa;
                 }
                 QGroupBox::title {
                     subcontrol-origin: margin;
                     left: 10px;
-                    padding: 0 6px 0 6px;
-                    background-color: transparent;
+                    padding: 0 8px 0 8px;
+                    color: #0066cc;
+                    font-weight: bold;
                 }
                 QListWidget, QTextEdit, QLineEdit {
                     border: 1px solid #c0c0c0;
-                    border-radius: 3px;
-                    padding: 4px;
+                    border-radius: 4px;
+                    padding: 6px;
                     background-color: white;
-                    color: black;
+                    color: #333;
                     selection-background-color: #0078d7;
                     selection-color: white;
                 }
                 QPushButton {
-                    padding: 5px 10px;
-                    border-radius: 3px;
+                    padding: 8px 12px;
+                    border-radius: 4px;
                     border: 1px solid #c0c0c0;
                     background-color: #f0f0f0;
-                    min-width: 80px;
+                    font-weight: bold;
                 }
                 QPushButton:hover {
                     background-color: #e0e0e0;
+                    border-color: #0066cc;
                 }
                 QPushButton:pressed {
                     background-color: #d0d0d0;
@@ -414,13 +481,28 @@ class CrawlerGUI(QWidget):
                 QScrollBar:vertical {
                     border: 1px solid #c0c0c0;
                     background: #f0f0f0;
-                    width: 12px;
+                    width: 15px;
+                    margin: 0;
+                }
+                QScrollBar:horizontal {
+                    border: 1px solid #c0c0c0;
+                    background: #f0f0f0;
+                    height: 15px;
                     margin: 0;
                 }
                 QScrollBar::handle:vertical {
                     background: #c0c0c0;
                     min-height: 20px;
-                    border-radius: 5px;
+                    border-radius: 7px;
+                }
+                QScrollBar::handle:horizontal {
+                    background: #c0c0c0;
+                    min-width: 20px;
+                    border-radius: 7px;
+                }
+                QScrollBar::add-line, QScrollBar::sub-line {
+                    height: 0;
+                    width: 0;
                 }
             """)
 
@@ -488,6 +570,7 @@ class CrawlerGUI(QWidget):
         if self.worker_thread and self.worker_thread.is_alive():
             log_message("INFO", "Crawler is already running", debug_only=False)
             return
+            
         urls = [self.url_list.item(i).text() for i in range(self.url_list.count())]
         
         self.coordinator = CrawlCoordinator()
@@ -524,35 +607,67 @@ class CrawlerGUI(QWidget):
         self.is_running = False
         self.is_paused = False
         self.update_button_states()
+        self.archiving_progress.setValue(0)
+        self.archiving_progress.setMaximum(1)
 
     def poll_state(self):
         if not self.coordinator:
             return
 
-        self.crawl_list.clear()
+        crawling_items = []
         if hasattr(self.coordinator, 'crawling_queue'):
-            self.crawl_list.addItems(
-                [u[0] for u in self.coordinator.crawling_queue]
-            )
+            crawling_items = [u[0] for u in list(self.coordinator.crawling_queue)[:20]]
+        self.status_updater.update_crawling.emit(crawling_items)
 
-        self.archive_list.clear()
+        archiving_items = []
         if hasattr(self.coordinator, 'queue_for_archiving'):
-            self.archive_list.addItems(
-                list(self.coordinator.queue_for_archiving)
-            )
+            archiving_items = list(self.coordinator.queue_for_archiving)[:20]
+        self.status_updater.update_archiving.emit(archiving_items)
+        
+        archived_count = getattr(self.coordinator, 'archived_count', 0)
+        skipped_count = getattr(self.coordinator, 'skipped_count', 0)
+        failed_count = getattr(self.coordinator, 'failed_count', 0)
+        total_processed = archived_count + skipped_count + failed_count
+        total_links = getattr(self.coordinator, 'total_links_to_archive', max(1, total_processed))
+        
+        self.archiving_progress.setMaximum(max(1, total_links))
+        self.archiving_progress.setValue(min(archived_count + skipped_count + failed_count, total_links))
+        status = "Running"
+        if self.is_paused:
+            status = "Paused"
+        elif not self.is_running:
+            status = "Stopped"
             
-        if hasattr(self.coordinator, 'archived_count'):
-            status = "Running"
-            if self.is_paused:
-                status = "Paused"
-                
-            self.stats.setText(
-                f"Status: {status} | "
-                f"Archived: {self.coordinator.archived_count} | "
-                f"Skipped: {self.coordinator.skipped_count} | "
-                f"Failed: {self.coordinator.failed_count} | "
-                f"Total: {getattr(self.coordinator, 'total_links_to_archive', 0)}"
-            )
+        self.status_updater.update_status.emit(
+            status, 
+            str(archived_count), 
+            str(skipped_count), 
+            str(failed_count), 
+            str(total_links)
+        )
+
+    def update_crawling_list(self, items):
+        self.crawl_list.clear()
+        for item in items:
+            list_item = QListWidgetItem(item)
+            list_item.setForeground(QColor("#ff9900"))  # Orange
+            self.crawl_list.addItem(list_item)
+
+    def update_archiving_list(self, items):
+        self.archive_list.clear()
+        for item in items:
+            list_item = QListWidgetItem(item)
+            list_item.setForeground(QColor("#00cc66"))  #Green
+            self.archive_list.addItem(list_item)
+
+    def update_stats(self, status, archived, skipped, failed, total):
+        self.stats.setText(
+            f"Status: {status} | "
+            f"Archived: <span style='color:#00cc66'>{archived}</span> | "
+            f"Skipped: <span style='color:#ff9900'>{skipped}</span> | "
+            f"Failed: <span style='color:#ff3333'>{failed}</span> | "
+            f"Total: {total}"
+        )
 
     def update_button_states(self):
         self.start_btn.setEnabled(not self.is_running)
