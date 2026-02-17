@@ -248,7 +248,7 @@ class CrawlerGUI(QWidget):
             QProgressBar::chunk {
                 background-color: #0096ff;
                 width: 10px;
-                margin: 0.5px;
+                margin: 0px;
             }
         """)
         self.archiving_progress.setFormat("%p% (%v/%m)")
@@ -269,7 +269,7 @@ class CrawlerGUI(QWidget):
         crawl_group = QGroupBox("Crawling Queue")
         crawl_layout = QVBoxLayout()
         self.crawl_list = QListWidget()
-        self.crawl_list.setMaximumHeight(200)
+        self.crawl_list.setMaximumHeight(1000)
         crawl_layout.addWidget(self.crawl_list)
         crawl_group.setLayout(crawl_layout)
         panel.addWidget(crawl_group)
@@ -278,7 +278,7 @@ class CrawlerGUI(QWidget):
         archive_group = QGroupBox("Archiving Queue")
         archive_layout = QVBoxLayout()
         self.archive_list = QListWidget()
-        self.archive_list.setMaximumHeight(200)
+        self.archive_list.setMaximumHeight(1000)
         archive_layout.addWidget(self.archive_list)
         archive_group.setLayout(archive_layout)
         panel.addWidget(archive_group)
@@ -324,12 +324,12 @@ class CrawlerGUI(QWidget):
                     color: #e0e0e0;
                     background-color: #1e1e1e;
                 }
-                QGroupBox {
-                    border: 1px solid #404040;
+                QGroupBox { 
+                    border: 1px solid #141414;
                     border-radius: 8px;
                     margin-top: 1em;
                     padding-top: 15px;
-                    background-color: #252526;
+                    background-color: #1e1e1e;
                 }
                 QGroupBox::title {
                     subcontrol-origin: margin;
@@ -343,8 +343,8 @@ class CrawlerGUI(QWidget):
                     color: #e0e0e0;
                     border: 1px solid #404040;
                     border-radius: 4px;
-                    padding: 6px;
-                    selection-background-color: #0078d7;
+                    padding: 0px;
+                    selection-background-color: #5F5F5F;
                     selection-color: white;
                 }
                 QPushButton {
@@ -387,7 +387,7 @@ class CrawlerGUI(QWidget):
                     background-color: #3e3e40;
                 }
                 QScrollBar:vertical {
-                    border: 1px solid #404040;
+                    border: 1px solid #573D3D;
                     background: #2d2d30;
                     width: 15px;
                     margin: 0;
@@ -419,7 +419,7 @@ class CrawlerGUI(QWidget):
                     background-color: #2d2d30;
                 }
                 QProgressBar::chunk {
-                    border-radius: 3px;
+                    border-radius: 0px;
                 }
             """)
         else:
@@ -450,7 +450,7 @@ class CrawlerGUI(QWidget):
                     padding: 6px;
                     background-color: white;
                     color: #333;
-                    selection-background-color: #0078d7;
+                    selection-background-color: #777777;
                     selection-color: white;
                 }
                 QPushButton {
@@ -462,7 +462,7 @@ class CrawlerGUI(QWidget):
                 }
                 QPushButton:hover {
                     background-color: #e0e0e0;
-                    border-color: #0066cc;
+                    border-color: #A1A1A1;
                 }
                 QPushButton:pressed {
                     background-color: #d0d0d0;
@@ -657,7 +657,7 @@ class CrawlerGUI(QWidget):
         self.archive_list.clear()
         for item in items:
             list_item = QListWidgetItem(item)
-            list_item.setForeground(QColor("#00cc66"))  #Green
+            list_item.setForeground(QColor("#00cc66"))  # Green
             self.archive_list.addItem(list_item)
 
     def update_stats(self, status, archived, skipped, failed, total):
