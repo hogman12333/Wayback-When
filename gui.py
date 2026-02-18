@@ -35,8 +35,15 @@ def load_settings():
                 loaded = json.load(f)
                 SETTINGS.update(loaded)
             log_message("INFO", f"Settings loaded from {SETTINGS_FILE}", debug_only=True)
+        else:
+            # Set default dark mode if no settings file exists
+            SETTINGS["dark_mode"] = True
+            save_settings()
     except Exception as e:
         log_message("ERROR", f"Failed to load settings: {str(e)}", debug_only=False)
+        # Set default dark mode on error
+        SETTINGS["dark_mode"] = True
+        save_settings()
 
 class SettingsDialog(QDialog):
     def __init__(self, parent=None):
@@ -70,7 +77,7 @@ class SettingsDialog(QDialog):
                 )
             elif isinstance(value, int):
                 w = QSpinBox()
-                w.setMaximum(10_000)
+                w.setMaximum(10000)
                 w.setValue(value)
                 w.valueChanged.connect(
                     lambda v, k=key: SETTINGS.__setitem__(k, v)
@@ -112,7 +119,7 @@ class CrawlerGUI(QWidget):
         self.timer = None
         self.is_running = False
         self.is_paused = False
-        self.dark_mode = SETTINGS.get("dark_mode", False)
+        self.dark_mode = SETTINGS.get("dark_mode", True)
         self.status_updater = StatusUpdater()
         self.status_updater.update_status.connect(self.update_stats)
         self.status_updater.update_crawling.connect(self.update_crawling_list)
@@ -122,10 +129,13 @@ class CrawlerGUI(QWidget):
         self.apply_theme()
 
     def init_ui(self):
-        self.setWindowTitle("Wayback When - Web Archiver")
-        self.resize(1300, 800)
+        self.setWindowTitle("Wayback When")
+        self.resize(1000, 700)
 
-        menubar = QMenuBar(self)
+        main_layout = QVBoxLayout(self)
+        main_layout.setSpacing(15)
+        main_layout.setContentsMargins(15, 15, 15, 15)
+        menubar = QMenuBar()
         file_menu = menubar.addMenu("&File")
         
         settings_action = QAction("&Settings", self)
@@ -136,27 +146,24 @@ class CrawlerGUI(QWidget):
         theme_action.triggered.connect(self.toggle_theme)
         file_menu.addAction(theme_action)
 
-        root = QVBoxLayout(self)
-        root.setMenuBar(menubar)
-        root.setSpacing(15)
-        root.setContentsMargins(15, 15, 15, 15)
+        main_layout.setMenuBar(menubar)
+        content_layout = QHBoxLayout()
+        content_layout.setSpacing(15)
+        main_layout.addLayout(content_layout)
 
-        main_layout = QHBoxLayout()
-        main_layout.setSpacing(15)
-        main_layout.setContentsMargins(0, 0, 0, 0)
-        root.addLayout(main_layout)
-
-        # Left sideba
         sidebar = QVBoxLayout()
         sidebar.setSpacing(15)
-        main_layout.addLayout(sidebar, 1)
+        sidebar.setAlignment(Qt.AlignmentFlag.AlignTop)
+        content_layout.addLayout(sidebar, 1)
 
-        # URL input
-        url_group = QGroupBox("URL Management")
-        url_layout = QVBoxLayout()
+        # URL
+        url_group = QGroupBox("URL Input")
+        url_layout = QVBoxLayout(url_group)
         url_layout.setSpacing(10)
+        url_layout.setContentsMargins(10, 10, 10, 10)
 
         url_row = QHBoxLayout()
+        url_row.setSpacing(10)
         self.url_entry = QLineEdit()
         self.url_entry.setPlaceholderText("Enter URL (e.g., example.com)")
         url_row.addWidget(self.url_entry, 4)
@@ -169,7 +176,8 @@ class CrawlerGUI(QWidget):
         
         self.url_list = QListWidget()
         self.url_list.setSelectionMode(QListWidget.SelectionMode.ExtendedSelection)
-        url_layout.addWidget(self.url_list, 2)
+        self.url_list.setMinimumHeight(100)
+        url_layout.addWidget(self.url_list)
         
         control_btn_layout = QHBoxLayout()
         control_btn_layout.setSpacing(8)
@@ -194,19 +202,19 @@ class CrawlerGUI(QWidget):
         control_btn_layout.addWidget(self.stop_btn)
         
         url_layout.addLayout(control_btn_layout)
-        url_group.setLayout(url_layout)
-        sidebar.addWidget(url_group, 1)
+        sidebar.addWidget(url_group)
 
-        # Proxy input
+        # Proxy
         proxy_group = QGroupBox("Proxy Configuration")
-        proxy_layout = QVBoxLayout()
+        proxy_layout = QVBoxLayout(proxy_group)
         proxy_layout.setSpacing(10)
+        proxy_layout.setContentsMargins(10, 10, 10, 10)
         
         proxy_label = QLabel("Proxies (one per line):")
         proxy_layout.addWidget(proxy_label)
         
         self.proxy_text = QTextEdit()
-        self.proxy_text.setMaximumHeight(120)
+        self.proxy_text.setMaximumHeight(60000)
         self.proxy_text.setPlaceholderText("http://user:pass@host:port\nsocks5://user:pass@host:port")
         proxy_layout.addWidget(self.proxy_text)
         
@@ -221,19 +229,18 @@ class CrawlerGUI(QWidget):
         proxy_btn_layout.addWidget(self.clear_proxy_btn)
         
         proxy_layout.addLayout(proxy_btn_layout)
-        proxy_group.setLayout(proxy_layout)
         sidebar.addWidget(proxy_group)
 
-        # Stats 
         stats_group = QGroupBox("Progress Statistics")
-        stats_layout = QVBoxLayout()
+        stats_layout = QVBoxLayout(stats_group)
         stats_layout.setSpacing(10)
+        stats_layout.setContentsMargins(10, 10, 10, 10)
         
         self.stats = QLabel("Status: Ready | Archived: 0 | Skipped: 0 | Failed: 0 | Total: 0")
         self.stats.setFont(QFont("Arial", 10, QFont.Weight.Bold))
         stats_layout.addWidget(self.stats)
         
-        #Progress bar
+        # Progress bar
         progress_layout = QVBoxLayout()
         progress_layout.setSpacing(8)
         
@@ -257,30 +264,32 @@ class CrawlerGUI(QWidget):
         progress_layout.addWidget(self.archiving_progress)
         
         stats_layout.addLayout(progress_layout)
-        stats_group.setLayout(stats_layout)
         sidebar.addWidget(stats_group)
 
-        # right panel
+        # Right panel
         panel = QVBoxLayout()
         panel.setSpacing(15)
-        main_layout.addLayout(panel, 2)
+        panel.setAlignment(Qt.AlignmentFlag.AlignTop)
+        content_layout.addLayout(panel, 2)
 
-        # archiving queue
+        # Crawling Queue Group
         crawl_group = QGroupBox("Crawling Queue")
-        crawl_layout = QVBoxLayout()
+        crawl_layout = QVBoxLayout(crawl_group)
+        crawl_layout.setSpacing(5)
+        crawl_layout.setContentsMargins(10, 10, 10, 10)
         self.crawl_list = QListWidget()
-        self.crawl_list.setMaximumHeight(1000)
+        self.crawl_list.setMaximumHeight(600000)
         crawl_layout.addWidget(self.crawl_list)
-        crawl_group.setLayout(crawl_layout)
         panel.addWidget(crawl_group)
 
-        # archiving queue
+        # Archiving Queue Group
         archive_group = QGroupBox("Archiving Queue")
-        archive_layout = QVBoxLayout()
+        archive_layout = QVBoxLayout(archive_group)
+        archive_layout.setSpacing(5)
+        archive_layout.setContentsMargins(10, 10, 10, 10)
         self.archive_list = QListWidget()
-        self.archive_list.setMaximumHeight(1000)
+        self.archive_list.setMaximumHeight(60000)
         archive_layout.addWidget(self.archive_list)
-        archive_group.setLayout(archive_layout)
         panel.addWidget(archive_group)
         
         self.update_proxy_display()
@@ -449,7 +458,7 @@ class CrawlerGUI(QWidget):
                     border-radius: 4px;
                     padding: 6px;
                     background-color: white;
-                    color: #333333\;
+                    color: #242424;
                     selection-background-color: #777777;
                     selection-color: white;
                 }
