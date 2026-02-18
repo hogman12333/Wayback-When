@@ -384,6 +384,11 @@ class CrawlerGUI(QWidget):
     def apply_theme(self):
         app = QApplication.instance()
         self.theme_manager.apply_theme(self.current_theme, app, self)
+        # Force repaint to ensure theme changes are applied
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        self.style().unpolish(self)
+        self.style().polish(self)
+        self.update()
 
     def show_settings(self):
         dialog = SettingsDialog(self)
