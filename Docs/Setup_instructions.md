@@ -4,22 +4,11 @@ WaybackWhen requires Python, pip libraries, and a Chromium‑based browser. Some
 
 ---
 
-## Debian‑Based
+## Debian/Ubuntu‑Based
 ```
 sudo apt update
 sudo apt install python3 python3-pip python3-venv curl unzip
 sudo apt install chromium-browser
-pip install requests beautifulsoup4 waybackpy selenium webdriver-manager selenium-stealth networkx matplotlib
-```
-
----
-
-## Ubuntu‑Based
-```
-sudo apt update
-sudo apt install python3 python3-pip python3-venv curl unzip
-sudo apt install chromium-browser
-pip install requests beautifulsoup4 waybackpy selenium webdriver-manager selenium-stealth networkx matplotlib
 ```
 
 ---
@@ -28,7 +17,6 @@ pip install requests beautifulsoup4 waybackpy selenium webdriver-manager seleniu
 ```
 sudo pacman -Syu
 sudo pacman -S python python-pip chromium
-pip install requests beautifulsoup4 waybackpy selenium webdriver-manager selenium-stealth networkx matplotlib
 ```
 
 ---
@@ -38,7 +26,6 @@ pip install requests beautifulsoup4 waybackpy selenium webdriver-manager seleniu
 sudo dnf update
 sudo dnf install python3 python3-pip python3-virtualenv curl unzip
 sudo dnf install chromium
-pip install requests beautifulsoup4 waybackpy selenium webdriver-manager selenium-stealth networkx matplotlib
 ```
 
 ---
@@ -47,7 +34,6 @@ pip install requests beautifulsoup4 waybackpy selenium webdriver-manager seleniu
 ```
 sudo emerge --sync
 sudo emerge --ask dev-lang/python dev-python/pip www-client/chromium
-pip install requests beautifulsoup4 waybackpy selenium webdriver-manager selenium-stealth networkx matplotlib
 ```
 
 ---
@@ -56,10 +42,9 @@ pip install requests beautifulsoup4 waybackpy selenium webdriver-manager seleniu
 Temporary shell:
 ```
 nix-shell -p python3 python3Packages.pip chromium
-pip install requests beautifulsoup4 waybackpy selenium webdriver-manager selenium-stealth networkx matplotlib
 ```
 
-Or add to configuration.nix:
+Or alternatively, add to configuration.nix:
 ```
 environment.systemPackages = [
   python3
@@ -77,6 +62,32 @@ environment.systemPackages = [
 ```
 py -m pip install --upgrade pip
 py -m pip install requests beautifulsoup4 waybackpy selenium webdriver-manager selenium-stealth networkx matplotlib
+```
+
+---
+
+After the dependencies have been installed, it is a good idea to create a Python virtual envoriment:
+
+```
+python -m venv venv
+```
+
+Once the venv is made install the dependencies as needed:
+
+```
+./venv/bin/pip install -r requirements.txt
+```
+
+With the necessary dependenices installed, you can now run either wayback-when's CLI interface:
+
+```
+./venv/bin/python ./WaybackWhen.py
+```
+
+Or run the GUI frontend:
+
+```
+./venv/bin/python ./gui.py
 ```
 
 ---
