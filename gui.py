@@ -36,12 +36,10 @@ def load_settings():
                 SETTINGS.update(loaded)
             log_message("INFO", f"Settings loaded from {SETTINGS_FILE}", debug_only=True)
         else:
-            # Set default dark mode if no settings file exists
             SETTINGS["dark_mode"] = True
             save_settings()
     except Exception as e:
         log_message("ERROR", f"Failed to load settings: {str(e)}", debug_only=False)
-        # Set default dark mode on error
         SETTINGS["dark_mode"] = True
         save_settings()
 
@@ -67,6 +65,7 @@ class SettingsDialog(QDialog):
                 
             box = QHBoxLayout()
             label = QLabel(f"{key.replace('_', ' ').title()}:")
+            label.setObjectName(f"{key}_label")
             box.addWidget(label, 1)
 
             if isinstance(value, bool):
@@ -75,6 +74,7 @@ class SettingsDialog(QDialog):
                 w.stateChanged.connect(
                     lambda v, k=key: SETTINGS.__setitem__(k, bool(v))
                 )
+                w.setObjectName(f"{key}_checkbox")
             elif isinstance(value, int):
                 w = QSpinBox()
                 w.setMaximum(10000)
@@ -82,7 +82,7 @@ class SettingsDialog(QDialog):
                 w.valueChanged.connect(
                     lambda v, k=key: SETTINGS.__setitem__(k, v)
                 )
-            else:
+                w.setObjectName(f"{key}_spinbox")
                 continue 
 
             box.addWidget(w, 2)
@@ -131,19 +131,23 @@ class CrawlerGUI(QWidget):
     def init_ui(self):
         self.setWindowTitle("Wayback When")
         self.resize(1000, 700)
+        self.setObjectName("main_window")
 
         main_layout = QVBoxLayout(self)
         main_layout.setSpacing(15)
         main_layout.setContentsMargins(15, 15, 15, 15)
         menubar = QMenuBar()
         file_menu = menubar.addMenu("&File")
+        file_menu.setObjectName("file_menu")
         
         settings_action = QAction("&Settings", self)
         settings_action.triggered.connect(self.show_settings)
+        settings_action.setObjectName("settings_action")
         file_menu.addAction(settings_action)
         
         theme_action = QAction("&Toggle Theme", self)
         theme_action.triggered.connect(self.toggle_theme)
+        theme_action.setObjectName("theme_action")
         file_menu.addAction(theme_action)
 
         main_layout.setMenuBar(menubar)
@@ -158,6 +162,7 @@ class CrawlerGUI(QWidget):
 
         # URL
         url_group = QGroupBox("URL Input")
+        url_group.setObjectName("url_group")
         url_layout = QVBoxLayout(url_group)
         url_layout.setSpacing(10)
         url_layout.setContentsMargins(10, 10, 10, 10)
@@ -166,10 +171,16 @@ class CrawlerGUI(QWidget):
         url_row.setSpacing(10)
         self.url_entry = QLineEdit()
         self.url_entry.setPlaceholderText("Enter URL (e.g., example.com)")
+        self.url_entry.setObjectName("url_entry")
+        self.url_entry.setAccessibleName("URL Entry Field")
+        self.url_entry.setAccessibleDescription("Enter a website URL to begin archiving")
         url_row.addWidget(self.url_entry, 4)
         
         self.add_url_btn = QPushButton("Add URL")
         self.add_url_btn.clicked.connect(self.add_url)
+        self.add_url_btn.setObjectName("add_url_btn")
+        self.add_url_btn.setAccessibleName("Add URL Button")
+        self.add_url_btn.setAccessibleDescription("Adds the entered URL to the processing queue")
         url_row.addWidget(self.add_url_btn, 1)
         
         url_layout.addLayout(url_row)
@@ -177,6 +188,9 @@ class CrawlerGUI(QWidget):
         self.url_list = QListWidget()
         self.url_list.setSelectionMode(QListWidget.SelectionMode.ExtendedSelection)
         self.url_list.setMinimumHeight(100)
+        self.url_list.setObjectName("url_list")
+        self.url_list.setAccessibleName("URL List")
+        self.url_list.setAccessibleDescription("List of URLs to be processed")
         url_layout.addWidget(self.url_list)
         
         control_btn_layout = QHBoxLayout()
@@ -184,21 +198,33 @@ class CrawlerGUI(QWidget):
         
         self.start_btn = QPushButton("▶ Start")
         self.start_btn.clicked.connect(self.start_crawling)
+        self.start_btn.setObjectName("start_btn")
+        self.start_btn.setAccessibleName("Start Button")
+        self.start_btn.setAccessibleDescription("Begins the archiving process for all listed URLs")
         control_btn_layout.addWidget(self.start_btn)
         
         self.pause_btn = QPushButton("⏸ Pause")
         self.pause_btn.clicked.connect(self.pause)
         self.pause_btn.setEnabled(False)
+        self.pause_btn.setObjectName("pause_btn")
+        self.pause_btn.setAccessibleName("Pause Button")
+        self.pause_btn.setAccessibleDescription("Pauses the current archiving process")
         control_btn_layout.addWidget(self.pause_btn)
         
         self.resume_btn = QPushButton("⏯ Resume")
         self.resume_btn.clicked.connect(self.resume)
         self.resume_btn.setEnabled(False)
+        self.resume_btn.setObjectName("resume_btn")
+        self.resume_btn.setAccessibleName("Resume Button")
+        self.resume_btn.setAccessibleDescription("Resumes the paused archiving process")
         control_btn_layout.addWidget(self.resume_btn)
         
         self.stop_btn = QPushButton("⏹ Stop")
         self.stop_btn.clicked.connect(self.stop)
         self.stop_btn.setEnabled(False)
+        self.stop_btn.setObjectName("stop_btn")
+        self.stop_btn.setAccessibleName("Stop Button")
+        self.stop_btn.setAccessibleDescription("Stops the archiving process completely")
         control_btn_layout.addWidget(self.stop_btn)
         
         url_layout.addLayout(control_btn_layout)
@@ -206,38 +232,54 @@ class CrawlerGUI(QWidget):
 
         # Proxy
         proxy_group = QGroupBox("Proxy Configuration")
+        proxy_group.setObjectName("proxy_group")
         proxy_layout = QVBoxLayout(proxy_group)
         proxy_layout.setSpacing(10)
         proxy_layout.setContentsMargins(10, 10, 10, 10)
         
         proxy_label = QLabel("Proxies (one per line):")
+        proxy_label.setObjectName("proxy_label")
+        proxy_label.setAccessibleName("Proxy Configuration Label")
         proxy_layout.addWidget(proxy_label)
         
         self.proxy_text = QTextEdit()
         self.proxy_text.setMaximumHeight(60000)
         self.proxy_text.setPlaceholderText("http://user:pass@host:port\nsocks5://user:pass@host:port")
+        self.proxy_text.setObjectName("proxy_text")
+        self.proxy_text.setAccessibleName("Proxy Text Area")
+        self.proxy_text.setAccessibleDescription("Enter proxy servers one per line in protocol://user:pass@host:port format")
         proxy_layout.addWidget(self.proxy_text)
         
         proxy_btn_layout = QHBoxLayout()
         proxy_btn_layout.setSpacing(8)
         self.save_proxy_btn = QPushButton("Save Proxies")
         self.save_proxy_btn.clicked.connect(self.save_proxies)
+        self.save_proxy_btn.setObjectName("save_proxy_btn")
+        self.save_proxy_btn.setAccessibleName("Save Proxies Button")
+        self.save_proxy_btn.setAccessibleDescription("Saves the entered proxy configurations")
         proxy_btn_layout.addWidget(self.save_proxy_btn)
         
         self.clear_proxy_btn = QPushButton("Clear Proxies")
         self.clear_proxy_btn.clicked.connect(self.clear_proxies)
+        self.clear_proxy_btn.setObjectName("clear_proxy_btn")
+        self.clear_proxy_btn.setAccessibleName("Clear Proxies Button")
+        self.clear_proxy_btn.setAccessibleDescription("Clears all proxy configurations")
         proxy_btn_layout.addWidget(self.clear_proxy_btn)
         
         proxy_layout.addLayout(proxy_btn_layout)
         sidebar.addWidget(proxy_group)
 
         stats_group = QGroupBox("Progress Statistics")
+        stats_group.setObjectName("stats_group")
         stats_layout = QVBoxLayout(stats_group)
         stats_layout.setSpacing(10)
         stats_layout.setContentsMargins(10, 10, 10, 10)
         
         self.stats = QLabel("Status: Ready | Archived: 0 | Skipped: 0 | Failed: 0 | Total: 0")
         self.stats.setFont(QFont("Arial", 10, QFont.Weight.Bold))
+        self.stats.setObjectName("stats_label")
+        self.stats.setAccessibleName("Statistics Display")
+        self.stats.setAccessibleDescription("Shows current archiving statistics including status, archived count, skipped count, failed count, and total count")
         stats_layout.addWidget(self.stats)
         
         # Progress bar
@@ -245,6 +287,8 @@ class CrawlerGUI(QWidget):
         progress_layout.setSpacing(8)
         
         archiving_label = QLabel("Archiving Progress:")
+        archiving_label.setObjectName("archiving_label")
+        archiving_label.setAccessibleName("Archiving Progress Label")
         self.archiving_progress = QProgressBar()
         self.archiving_progress.setStyleSheet("""
             QProgressBar {
@@ -259,6 +303,9 @@ class CrawlerGUI(QWidget):
             }
         """)
         self.archiving_progress.setFormat("%p% (%v/%m)")
+        self.archiving_progress.setObjectName("archiving_progress")
+        self.archiving_progress.setAccessibleName("Archiving Progress Bar")
+        self.archiving_progress.setAccessibleDescription("Visual representation of archiving progress percentage")
         
         progress_layout.addWidget(archiving_label)
         progress_layout.addWidget(self.archiving_progress)
@@ -274,21 +321,29 @@ class CrawlerGUI(QWidget):
 
         # Crawling Queue Group
         crawl_group = QGroupBox("Crawling Queue")
+        crawl_group.setObjectName("crawl_group")
         crawl_layout = QVBoxLayout(crawl_group)
         crawl_layout.setSpacing(5)
         crawl_layout.setContentsMargins(10, 10, 10, 10)
         self.crawl_list = QListWidget()
         self.crawl_list.setMaximumHeight(600000)
+        self.crawl_list.setObjectName("crawl_list")
+        self.crawl_list.setAccessibleName("Crawling Queue List")
+        self.crawl_list.setAccessibleDescription("Shows URLs currently being crawled")
         crawl_layout.addWidget(self.crawl_list)
         panel.addWidget(crawl_group)
 
-        # Archiving Queue Group
+        # Archiving Queue
         archive_group = QGroupBox("Archiving Queue")
+        archive_group.setObjectName("archive_group")
         archive_layout = QVBoxLayout(archive_group)
         archive_layout.setSpacing(5)
         archive_layout.setContentsMargins(10, 10, 10, 10)
         self.archive_list = QListWidget()
         self.archive_list.setMaximumHeight(60000)
+        self.archive_list.setObjectName("archive_list")
+        self.archive_list.setAccessibleName("Archiving Queue List")
+        self.archive_list.setAccessibleDescription("Shows URLs currently being archived")
         archive_layout.addWidget(self.archive_list)
         panel.addWidget(archive_group)
         
