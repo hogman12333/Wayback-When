@@ -1,6 +1,7 @@
 import sys
 import threading
 import json
+import importlib
 from pathlib import Path
 from collections import deque
 
@@ -19,6 +20,7 @@ from urllib.parse import urlparse
 from WaybackWhen import SETTINGS, normalize_url, CrawlCoordinator, log_message, get_root_domain
 
 SETTINGS_FILE = "settings.txt"
+THEMES_DIR = Path("themes")
 
 def save_settings():
     try:
@@ -36,11 +38,11 @@ def load_settings():
                 SETTINGS.update(loaded)
             log_message("INFO", f"Settings loaded from {SETTINGS_FILE}", debug_only=True)
         else:
-            SETTINGS["dark_mode"] = True
+            SETTINGS["theme"] = "dark"
             save_settings()
     except Exception as e:
         log_message("ERROR", f"Failed to load settings: {str(e)}", debug_only=False)
-        SETTINGS["dark_mode"] = True
+        SETTINGS["theme"] = "dark"
         save_settings()
 
 class SettingsDialog(QDialog):
@@ -83,7 +85,12 @@ class SettingsDialog(QDialog):
                     lambda v, k=key: SETTINGS.__setitem__(k, v)
                 )
                 w.setObjectName(f"{key}_spinbox")
-                continue 
+            else:
+                w = QLineEdit(str(value))
+                w.textChanged.connect(
+                    lambda v, k=key: SETTINGS.__setitem__(k, v)
+                )
+                w.setObjectName(f"{key}_lineedit")
 
             box.addWidget(w, 2)
             settings_layout.addLayout(box)
@@ -105,6 +112,29 @@ class SettingsDialog(QDialog):
         save_settings()
         self.accept()
 
+class ThemeManager:
+    def __init__(self):
+        self.available_themes = self.discover_themes()
+
+    def discover_themes(self):
+        if not THEMES_DIR.exists():
+            THEMES_DIR.mkdir()
+
+        themes = [
+            f.stem for f in THEMES_DIR.glob("*.py")
+            if f.name != "__init__.py"
+        ]
+
+        return themes or ["dark"]
+
+    def apply_theme(self, theme_name, app, widget):
+        try:
+            module = importlib.import_module(f"themes.{theme_name}")
+            importlib.reload(module)
+            module.apply(app, widget)
+        except Exception as e:
+            log_message("ERROR", f"Theme load failed: {e}", False)
+
 class StatusUpdater(QObject):
     update_status = pyqtSignal(str, str, str, str, str)   
     update_crawling = pyqtSignal(list)
@@ -114,12 +144,15 @@ class CrawlerGUI(QWidget):
     def __init__(self):
         super().__init__()
         load_settings()
+        
+        self.theme_manager = ThemeManager()
+        self.current_theme = SETTINGS.get("theme", "dark")
+
         self.coordinator = None
         self.worker_thread = None
         self.timer = None
         self.is_running = False
         self.is_paused = False
-        self.dark_mode = SETTINGS.get("dark_mode", True)
         self.status_updater = StatusUpdater()
         self.status_updater.update_status.connect(self.update_stats)
         self.status_updater.update_crawling.connect(self.update_crawling_list)
@@ -145,10 +178,9 @@ class CrawlerGUI(QWidget):
         settings_action.setObjectName("settings_action")
         file_menu.addAction(settings_action)
         
-        theme_action = QAction("&Toggle Theme", self)
-        theme_action.triggered.connect(self.toggle_theme)
-        theme_action.setObjectName("theme_action")
-        file_menu.addAction(theme_action)
+        theme_menu = menubar.addMenu("&Themes")
+        theme_menu.setObjectName("theme_menu")
+        self.populate_theme_menu(theme_menu)
 
         main_layout.setMenuBar(menubar)
         content_layout = QHBoxLayout()
@@ -290,18 +322,6 @@ class CrawlerGUI(QWidget):
         archiving_label.setObjectName("archiving_label")
         archiving_label.setAccessibleName("Archiving Progress Label")
         self.archiving_progress = QProgressBar()
-        self.archiving_progress.setStyleSheet("""
-            QProgressBar {
-                border: 2px solid grey;
-                border-radius: 5px;
-                text-align: center;
-            }
-            QProgressBar::chunk {
-                background-color: #0096ff;
-                width: 10px;
-                margin: 0px;
-            }
-        """)
         self.archiving_progress.setFormat("%p% (%v/%m)")
         self.archiving_progress.setObjectName("archiving_progress")
         self.archiving_progress.setAccessibleName("Archiving Progress Bar")
@@ -319,14 +339,13 @@ class CrawlerGUI(QWidget):
         panel.setAlignment(Qt.AlignmentFlag.AlignTop)
         content_layout.addLayout(panel, 2)
 
-        # Crawling Queue Group
+        # Crawling Queue
         crawl_group = QGroupBox("Crawling Queue")
         crawl_group.setObjectName("crawl_group")
         crawl_layout = QVBoxLayout(crawl_group)
         crawl_layout.setSpacing(5)
         crawl_layout.setContentsMargins(10, 10, 10, 10)
         self.crawl_list = QListWidget()
-        self.crawl_list.setMaximumHeight(600000)
         self.crawl_list.setObjectName("crawl_list")
         self.crawl_list.setAccessibleName("Crawling Queue List")
         self.crawl_list.setAccessibleDescription("Shows URLs currently being crawled")
@@ -340,7 +359,6 @@ class CrawlerGUI(QWidget):
         archive_layout.setSpacing(5)
         archive_layout.setContentsMargins(10, 10, 10, 10)
         self.archive_list = QListWidget()
-        self.archive_list.setMaximumHeight(60000)
         self.archive_list.setObjectName("archive_list")
         self.archive_list.setAccessibleName("Archiving Queue List")
         self.archive_list.setAccessibleDescription("Shows URLs currently being archived")
@@ -350,225 +368,27 @@ class CrawlerGUI(QWidget):
         self.update_proxy_display()
         self.apply_theme()
 
-    def show_settings(self):
-        dialog = SettingsDialog(self)
-        dialog.exec()
-        self.apply_theme()
+    def populate_theme_menu(self, menu):
+        menu.clear()
+        for theme in self.theme_manager.available_themes:
+            action = QAction(theme.capitalize(), self)
+            action.triggered.connect(lambda checked, t=theme: self.set_theme(t))
+            menu.addAction(action)
 
-    def toggle_theme(self):
-        self.dark_mode = not self.dark_mode
-        SETTINGS["dark_mode"] = self.dark_mode
+    def set_theme(self, theme_name):
+        self.current_theme = theme_name
+        SETTINGS["theme"] = theme_name
         save_settings()
         self.apply_theme()
 
     def apply_theme(self):
         app = QApplication.instance()
-        if self.dark_mode:
-            dark_palette = QPalette()
-            dark_palette.setColor(QPalette.ColorRole.Window, QColor(30, 30, 30))
-            dark_palette.setColor(QPalette.ColorRole.WindowText, QColor(220, 220, 220))
-            dark_palette.setColor(QPalette.ColorRole.Base, QColor(25, 25, 25))
-            dark_palette.setColor(QPalette.ColorRole.AlternateBase, QColor(35, 35, 35))
-            dark_palette.setColor(QPalette.ColorRole.ToolTipBase, QColor(220, 220, 220))
-            dark_palette.setColor(QPalette.ColorRole.ToolTipText, QColor(220, 220, 220))
-            dark_palette.setColor(QPalette.ColorRole.Text, QColor(220, 220, 220))
-            dark_palette.setColor(QPalette.ColorRole.Button, QColor(45, 45, 45))
-            dark_palette.setColor(QPalette.ColorRole.ButtonText, QColor(220, 220, 220))
-            dark_palette.setColor(QPalette.ColorRole.BrightText, Qt.GlobalColor.red)
-            dark_palette.setColor(QPalette.ColorRole.Highlight, QColor(0, 122, 204))
-            dark_palette.setColor(QPalette.ColorRole.HighlightedText, Qt.GlobalColor.white)
-            dark_palette.setColor(QPalette.ColorRole.PlaceholderText, QColor(127, 127, 127))
-            
-            app.setPalette(dark_palette)
-            
-            self.setStyleSheet("""
-                QWidget {
-                    font-family: "Segoe UI", Arial, sans-serif;
-                    font-size: 11pt;
-                    color: #e0e0e0;
-                    background-color: #1e1e1e;
-                }
-                QGroupBox { 
-                    border: 2px solid #141414;
-                    border-radius: 8px;
-                    margin-top: 1em;
-                    padding-top: 15px;
-                    background-color: #1e1e1e;
-                }
-                QGroupBox::title {
-                    subcontrol-origin: margin;
-                    left: 10px;
-                    padding: 0 8px 0 8px;
-                    color: #D8D8D8;
-                    font-weight: bold;
-                }
-                QListWidget, QTextEdit, QLineEdit {
-                    background-color: #2d2d30;
-                    color: #e0e0e0;
-                    border: 1px solid #404040;
-                    border-radius: 4px;
-                    padding: 0px;
-                    selection-background-color: #5F5F5F;
-                    selection-color: white;
-                }
-                QPushButton {
-                    background-color: #333337;
-                    color: #e0e0e0;
-                    border: 1px solid #404040;
-                    border-radius: 4px;
-                    padding: 8px 12px;
-                    font-weight: bold;
-                }
-                QPushButton:hover {
-                    background-color: #3a3a3d;
-                    border-color: #00ccff;
-                }
-                QPushButton:pressed {
-                    background-color: #1e1e1e;
-                }
-                QPushButton:disabled {
-                    color: #777;
-                    background-color: #2d2d30;
-                }
-                QMenuBar {
-                    background-color: #252526;
-                    color: #e0e0e0;
-                    border-bottom: 1px solid #404040;
-                }
-                QMenuBar::item {
-                    background-color: transparent;
-                    padding: 4px 8px;
-                }
-                QMenuBar::item:selected {
-                    background-color: #3e3e40;
-                }
-                QMenu {
-                    background-color: #2d2d30;
-                    color: #e0e0e0;
-                    border: 1px solid #404040;
-                }
-                QMenu::item:selected {
-                    background-color: #3e3e40;
-                }
-                QScrollBar:vertical {
-                    border: 1px solid #573D3D;
-                    background: #2d2d30;
-                    width: 15px;
-                    margin: 0;
-                }
-                QScrollBar:horizontal {
-                    border: 1px solid #404040;
-                    background: #2d2d30;
-                    height: 15px;
-                    margin: 0;
-                }
-                QScrollBar::handle:vertical {
-                    background: #3e3e40;
-                    min-height: 20px;
-                    border-radius: 7px;
-                }
-                QScrollBar::handle:horizontal {
-                    background: #3e3e40;
-                    min-width: 20px;
-                    border-radius: 7px;
-                }
-                QScrollBar::add-line, QScrollBar::sub-line {
-                    height: 0;
-                    width: 0;
-                }
-                QProgressBar {
-                    border: 1px solid #404040;
-                    border-radius: 4px;
-                    text-align: center;
-                    background-color: #2d2d30;
-                }
-                QProgressBar::chunk {
-                    border-radius: 0px;
-                }
-            """)
-        else:
-            app.setPalette(QApplication.style().standardPalette())
-            self.setStyleSheet("""
-                QWidget {
-                    font-family: "Segoe UI", Arial, sans-serif;
-                    font-size: 11pt;
-                    color: #313030;
-                }
-                QGroupBox {
-                    border: 2px solid #c0c0c0;
-                    border-radius: 8px;
-                    margin-top: 1em;
-                    padding-top: 15px;
-                    background-color: #fafafa;
-                }
-                QGroupBox::title {
-                    subcontrol-origin: margin;
-                    left: 10px;
-                    padding: 0 8px 0 8px;
-                    color: #1E1F20;
-                    font-weight: bold;
-                }
-                QListWidget, QTextEdit, QLineEdit {
-                    border: 1px solid #c0c0c0;
-                    border-radius: 4px;
-                    padding: 6px;
-                    background-color: white;
-                    color: #242424;
-                    selection-background-color: #777777;
-                    selection-color: white;
-                }
-                QPushButton {
-                    padding: 8px 12px;
-                    border-radius: 4px;
-                    border: 1px solid #c0c0c0;
-                    background-color: #f0f0f0;
-                    font-weight: bold;
-                }
-                QPushButton:hover {
-                    background-color: #e0e0e0;
-                    border-color: #A1A1A1;
-                }
-                QPushButton:pressed {
-                    background-color: #d0d0d0;
-                }
-                QPushButton:disabled {
-                    color: #a0a0a0;
-                    background-color: #f8f8f8;
-                }
-                QMenuBar {
-                    background-color: #f0f0f0;
-                    border-bottom: 1px solid #c0c0c0;
-                }
-                QMenuBar::item:selected {
-                    background-color: #e0e0e0;
-                }
-                QScrollBar:vertical {
-                    border: 1px solid #c0c0c0;
-                    background: #f0f0f0;
-                    width: 15px;
-                    margin: 0;
-                }
-                QScrollBar:horizontal {
-                    border: 1px solid #c0c0c0;
-                    background: #f0f0f0;
-                    height: 15px;
-                    margin: 0;
-                }
-                QScrollBar::handle:vertical {
-                    background: #c0c0c0;
-                    min-height: 20px;
-                    border-radius: 7px;
-                }
-                QScrollBar::handle:horizontal {
-                    background: #c0c0c0;
-                    min-width: 20px;
-                    border-radius: 7px;
-                }
-                QScrollBar::add-line, QScrollBar::sub-line {
-                    height: 0;
-                    width: 0;
-                }
-            """)
+        self.theme_manager.apply_theme(self.current_theme, app, self)
+
+    def show_settings(self):
+        dialog = SettingsDialog(self)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            self.apply_theme()
 
     def add_url(self):
         url = self.url_entry.text().strip()
