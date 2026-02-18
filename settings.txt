@@ -1,0 +1,21 @@
+{
+  "allow_external_links": false,
+  "archive_timeout_seconds": 1200,
+  "archiving_cooldown": 90,
+  "debug_mode": false,
+  "default_archiving_action": "N",
+  "enable_visual_tree_generation": false,
+  "max_archiver_workers": 1,
+  "max_crawler_workers": 10,
+  "min_link_search_delay": 0.0,
+  "max_link_search_delay": 5.0,
+  "max_crawl_runtime": 0,
+  "max_archive_runtime": 0,
+  "proxies": [],
+  "retries": 5,
+  "safety_switch": false,
+  "urls_per_minute_limit": 15,
+  "restrict_sideways_crawling": false,
+  "restrict_backwards_crawling": true,
+  "theme": "dark"
+}
