@@ -325,7 +325,7 @@ class CrawlerGUI(QWidget):
                     background-color: #1e1e1e;
                 }
                 QGroupBox { 
-                    border: 1px solid #141414;
+                    border: 2px solid #141414;
                     border-radius: 8px;
                     margin-top: 1em;
                     padding-top: 15px;
@@ -335,7 +335,7 @@ class CrawlerGUI(QWidget):
                     subcontrol-origin: margin;
                     left: 10px;
                     padding: 0 8px 0 8px;
-                    color: #00ccff;
+                    color: #D8D8D8;
                     font-weight: bold;
                 }
                 QListWidget, QTextEdit, QLineEdit {
@@ -428,10 +428,10 @@ class CrawlerGUI(QWidget):
                 QWidget {
                     font-family: "Segoe UI", Arial, sans-serif;
                     font-size: 11pt;
-                    color: #333;
+                    color: #313030;
                 }
                 QGroupBox {
-                    border: 1px solid #c0c0c0;
+                    border: 2px solid #c0c0c0;
                     border-radius: 8px;
                     margin-top: 1em;
                     padding-top: 15px;
@@ -441,7 +441,7 @@ class CrawlerGUI(QWidget):
                     subcontrol-origin: margin;
                     left: 10px;
                     padding: 0 8px 0 8px;
-                    color: #0066cc;
+                    color: #1E1F20;
                     font-weight: bold;
                 }
                 QListWidget, QTextEdit, QLineEdit {
@@ -449,7 +449,7 @@ class CrawlerGUI(QWidget):
                     border-radius: 4px;
                     padding: 6px;
                     background-color: white;
-                    color: #333;
+                    color: #333333\;
                     selection-background-color: #777777;
                     selection-color: white;
                 }
