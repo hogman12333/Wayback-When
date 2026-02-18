@@ -146,3 +146,7 @@ def apply(app, widget):
         border-radius: 0px;
     }
     """)
+
+    # transparency
+    widget.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
+    widget.setAttribute(Qt.WidgetAttribute.WA_NoSystemBackground, False)
