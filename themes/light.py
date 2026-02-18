@@ -1,5 +1,5 @@
 from PyQt6.QtWidgets import QApplication
-
+from PyQt6.QtCore import Qt
 
 def apply(app, widget):
     app.setPalette(QApplication.style().standardPalette())
@@ -9,6 +9,7 @@ def apply(app, widget):
         font-family: "Segoe UI", Arial, sans-serif;
         font-size: 11pt;
         color: #313030;
+        background-color: #f0f0f0;
     }
 
     QGroupBox {
@@ -107,3 +108,7 @@ def apply(app, widget):
         background-color: #0078d4;
     }
     """)
+
+    # transparency
+    widget.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
+    widget.setAttribute(Qt.WidgetAttribute.WA_NoSystemBackground, False)
