@@ -1,0 +1,25 @@
+Schlüssel,Wert
+url_input_title,URL-Eingabe
+url_placeholder,"URL eingeben (z. B. example.com)"
+add_url_btn,URL hinzufügen
+url_list_title,URL-Liste
+start_btn,▶ Starten
+pause_btn,⏸ Pausieren
+resume_btn,⏯ Fortsetzen
+stop_btn,⏹ Stoppen
+proxy_config_title,Proxy-Konfiguration
+proxy_placeholder,"http://user:pass@host:port
+socks5://user:pass@host:port"
+save_proxy_btn,Proxys speichern
+clear_proxy_btn,Proxys löschen
+progress_stats_title,Fortschrittsstatistik
+stats_format,"Status: {status} | Archiviert: {archived} | Übersprungen: {skipped} | Fehlgeschlagen: {failed} | Gesamt: {total}"
+crawling_queue_title,Crawling-Warteschlange
+archiving_queue_title,Archivierungs-Warteschlange
+file_menu,&Datei
+settings_action,&Einstellungen
+themes_menu,&Designs
+texts_menu,&Sprachen
+proxy_label,"Proxys (eine pro Zeile):"
+archiving_progress_label,Archivierungsfortschritt:
+text_editor_action,&Sprache ändern
