@@ -22,9 +22,8 @@ The archiver decides which pages actually need to be saved. For every link the s
 
 ### Bug Fixes
 
-
 ### Miscellaneous
-
+- depreciated ``visual_tree_generation``
 ## Contributing
 
 Pull requests are welcome. For major changes, please open an issue first
