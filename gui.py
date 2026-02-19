@@ -2,6 +2,7 @@ import sys
 import threading
 import json
 import importlib
+import csv
 from pathlib import Path
 from collections import deque
 
@@ -11,7 +12,8 @@ from PyQt6.QtWidgets import (
     QListWidget, QPushButton, QLineEdit, QLabel,
     QCheckBox, QSpinBox, QGroupBox, QScrollArea, QTextEdit, 
     QStyleFactory, QDialog, QDialogButtonBox, QMenu, QMenuBar,
-    QProgressBar, QFrame, QListWidgetItem
+    QProgressBar, QFrame, QListWidgetItem, QTableWidget, QTableWidgetItem,
+    QHeaderView
 )
 from PyQt6.QtGui import QPalette, QColor, QAction, QFont, QIcon
 
@@ -21,6 +23,7 @@ from WaybackWhen import SETTINGS, normalize_url, CrawlCoordinator, log_message, 
 
 SETTINGS_FILE = "settings.txt"
 THEMES_DIR = Path("themes")
+TEXTS_DIR = Path("texts")  
 
 def save_settings():
     try:
@@ -45,6 +48,93 @@ def load_settings():
         SETTINGS["theme"] = "dark"
         save_settings()
 
+class TextManager:
+    def __init__(self):
+        self.texts_dir = TEXTS_DIR
+        self.available_texts = self.discover_texts()
+        self.current_text = SETTINGS.get("language", "english")
+        self.labels = {}
+        self.load_current_text()
+
+    def discover_texts(self):
+        if not self.texts_dir.exists():
+            self.texts_dir.mkdir()
+            self.create_english_text()
+
+        texts = [
+            f.stem for f in self.texts_dir.glob("*.csv")
+            if f.name != "__init__.py"
+        ]
+
+        return texts or ["english"]
+
+    def create_english_text(self):
+        english_labels = {
+            "url_input_title": "URL Input",
+            "url_placeholder": "Enter URL (e.g., example.com)",
+            "add_url_btn": "Add URL",
+            "url_list_title": "URL List",
+            "start_btn": "▶ Start",
+            "pause_btn": "⏸ Pause",
+            "resume_btn": "⏯ Resume",
+            "stop_btn": "⏹ Stop",
+            "proxy_config_title": "Proxy Configuration",
+            "proxy_placeholder": "http://user:pass@host:port\nsocks5://user:pass@host:port",
+            "save_proxy_btn": "Save Proxies",
+            "clear_proxy_btn": "Clear Proxies",
+            "progress_stats_title": "Progress Statistics",
+            "stats_format": "Status: {status} | Archived: {archived} | Skipped: {skipped} | Failed: {failed} | Total: {total}",
+            "crawling_queue_title": "Crawling Queue",
+            "archiving_queue_title": "Archiving Queue",
+            "file_menu": "&File",
+            "settings_action": "&Settings",
+            "themes_menu": "&Themes",
+            "texts_menu": "&Languages",
+            "proxy_label": "Proxies (one per line):",
+            "archiving_progress_label": "Archiving Progress:",
+            "text_editor_action": "&Change Languages"
+        }
+        
+        try:
+            with open(self.texts_dir / "english.csv", 'w', newline='', encoding='utf-8') as f:
+                writer = csv.writer(f)
+                writer.writerow(["Key", "Value"])
+                for key, value in english_labels.items():
+                    writer.writerow([key, value])
+            log_message("INFO", "Created english text configuration", True)
+        except Exception as e:
+            log_message("ERROR", f"Failed to create english text: {e}", False)
+
+    def load_current_text(self):
+        text_file = self.texts_dir / f"{self.current_text}.csv"
+        if not text_file.exists():
+            self.create_english_text()
+            text_file = self.texts_dir / "english.csv"
+            
+        try:
+            with open(text_file, 'r', encoding='utf-8') as f:
+                reader = csv.reader(f)
+                next(reader)  # Skip header
+                self.labels = {row[0]: row[1] for row in reader if len(row) >= 2}
+        except Exception as e:
+            log_message("ERROR", f"Failed to load text config: {e}", False)
+            self.labels = {}
+
+    def get_text(self, key, **kwargs):
+        text = self.labels.get(key, key)
+        if kwargs:
+            try:
+                text = text.format(**kwargs)
+            except KeyError:
+                pass
+        return text
+
+    def set_language(self, language_name):
+        self.current_text = language_name
+        SETTINGS["language"] = language_name
+        save_settings()
+        self.load_current_text()
+
 class SettingsDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -62,7 +152,7 @@ class SettingsDialog(QDialog):
         self.setting_widgets = {}
         
         for key, value in SETTINGS.items():
-            if key == "proxies":
+            if key in ["proxies", "language"]:
                 continue
                 
             box = QHBoxLayout()
@@ -146,6 +236,7 @@ class CrawlerGUI(QWidget):
         load_settings()
         
         self.theme_manager = ThemeManager()
+        self.text_manager = TextManager()
         self.current_theme = SETTINGS.get("theme", "dark")
 
         self.coordinator = None
@@ -169,16 +260,21 @@ class CrawlerGUI(QWidget):
         main_layout = QVBoxLayout(self)
         main_layout.setSpacing(15)
         main_layout.setContentsMargins(15, 15, 15, 15)
+        
         menubar = QMenuBar()
-        file_menu = menubar.addMenu("&File")
+        file_menu = menubar.addMenu(self.text_manager.get_text("file_menu"))
         file_menu.setObjectName("file_menu")
         
-        settings_action = QAction("&Settings", self)
+        settings_action = QAction(self.text_manager.get_text("settings_action"), self)
         settings_action.triggered.connect(self.show_settings)
         settings_action.setObjectName("settings_action")
         file_menu.addAction(settings_action)
         
-        theme_menu = menubar.addMenu("&Themes")
+        texts_menu = menubar.addMenu(self.text_manager.get_text("texts_menu"))
+        texts_menu.setObjectName("texts_menu")
+        self.populate_text_menu(texts_menu)
+
+        theme_menu = menubar.addMenu(self.text_manager.get_text("themes_menu"))
         theme_menu.setObjectName("theme_menu")
         self.populate_theme_menu(theme_menu)
 
@@ -193,7 +289,7 @@ class CrawlerGUI(QWidget):
         content_layout.addLayout(sidebar, 1)
 
         # URL
-        url_group = QGroupBox("URL Input")
+        url_group = QGroupBox(self.text_manager.get_text("url_input_title"))
         url_group.setObjectName("url_group")
         url_layout = QVBoxLayout(url_group)
         url_layout.setSpacing(10)
@@ -202,13 +298,13 @@ class CrawlerGUI(QWidget):
         url_row = QHBoxLayout()
         url_row.setSpacing(10)
         self.url_entry = QLineEdit()
-        self.url_entry.setPlaceholderText("Enter URL (e.g., example.com)")
+        self.url_entry.setPlaceholderText(self.text_manager.get_text("url_placeholder"))
         self.url_entry.setObjectName("url_entry")
         self.url_entry.setAccessibleName("URL Entry Field")
         self.url_entry.setAccessibleDescription("Enter a website URL to begin archiving")
         url_row.addWidget(self.url_entry, 4)
         
-        self.add_url_btn = QPushButton("Add URL")
+        self.add_url_btn = QPushButton(self.text_manager.get_text("add_url_btn"))
         self.add_url_btn.clicked.connect(self.add_url)
         self.add_url_btn.setObjectName("add_url_btn")
         self.add_url_btn.setAccessibleName("Add URL Button")
@@ -228,14 +324,14 @@ class CrawlerGUI(QWidget):
         control_btn_layout = QHBoxLayout()
         control_btn_layout.setSpacing(8)
         
-        self.start_btn = QPushButton("▶ Start")
+        self.start_btn = QPushButton(self.text_manager.get_text("start_btn"))
         self.start_btn.clicked.connect(self.start_crawling)
         self.start_btn.setObjectName("start_btn")
         self.start_btn.setAccessibleName("Start Button")
         self.start_btn.setAccessibleDescription("Begins the archiving process for all listed URLs")
         control_btn_layout.addWidget(self.start_btn)
         
-        self.pause_btn = QPushButton("⏸ Pause")
+        self.pause_btn = QPushButton(self.text_manager.get_text("pause_btn"))
         self.pause_btn.clicked.connect(self.pause)
         self.pause_btn.setEnabled(False)
         self.pause_btn.setObjectName("pause_btn")
@@ -243,7 +339,7 @@ class CrawlerGUI(QWidget):
         self.pause_btn.setAccessibleDescription("Pauses the current archiving process")
         control_btn_layout.addWidget(self.pause_btn)
         
-        self.resume_btn = QPushButton("⏯ Resume")
+        self.resume_btn = QPushButton(self.text_manager.get_text("resume_btn"))
         self.resume_btn.clicked.connect(self.resume)
         self.resume_btn.setEnabled(False)
         self.resume_btn.setObjectName("resume_btn")
@@ -251,7 +347,7 @@ class CrawlerGUI(QWidget):
         self.resume_btn.setAccessibleDescription("Resumes the paused archiving process")
         control_btn_layout.addWidget(self.resume_btn)
         
-        self.stop_btn = QPushButton("⏹ Stop")
+        self.stop_btn = QPushButton(self.text_manager.get_text("stop_btn"))
         self.stop_btn.clicked.connect(self.stop)
         self.stop_btn.setEnabled(False)
         self.stop_btn.setObjectName("stop_btn")
@@ -263,20 +359,20 @@ class CrawlerGUI(QWidget):
         sidebar.addWidget(url_group)
 
         # Proxy
-        proxy_group = QGroupBox("Proxy Configuration")
+        proxy_group = QGroupBox(self.text_manager.get_text("proxy_config_title"))
         proxy_group.setObjectName("proxy_group")
         proxy_layout = QVBoxLayout(proxy_group)
         proxy_layout.setSpacing(10)
         proxy_layout.setContentsMargins(10, 10, 10, 10)
         
-        proxy_label = QLabel("Proxies (one per line):")
+        proxy_label = QLabel(self.text_manager.get_text("proxy_label"))
         proxy_label.setObjectName("proxy_label")
         proxy_label.setAccessibleName("Proxy Configuration Label")
         proxy_layout.addWidget(proxy_label)
         
         self.proxy_text = QTextEdit()
         self.proxy_text.setMaximumHeight(60000)
-        self.proxy_text.setPlaceholderText("http://user:pass@host:port\nsocks5://user:pass@host:port")
+        self.proxy_text.setPlaceholderText(self.text_manager.get_text("proxy_placeholder"))
         self.proxy_text.setObjectName("proxy_text")
         self.proxy_text.setAccessibleName("Proxy Text Area")
         self.proxy_text.setAccessibleDescription("Enter proxy servers one per line in protocol://user:pass@host:port format")
@@ -284,14 +380,14 @@ class CrawlerGUI(QWidget):
         
         proxy_btn_layout = QHBoxLayout()
         proxy_btn_layout.setSpacing(8)
-        self.save_proxy_btn = QPushButton("Save Proxies")
+        self.save_proxy_btn = QPushButton(self.text_manager.get_text("save_proxy_btn"))
         self.save_proxy_btn.clicked.connect(self.save_proxies)
         self.save_proxy_btn.setObjectName("save_proxy_btn")
         self.save_proxy_btn.setAccessibleName("Save Proxies Button")
         self.save_proxy_btn.setAccessibleDescription("Saves the entered proxy configurations")
         proxy_btn_layout.addWidget(self.save_proxy_btn)
         
-        self.clear_proxy_btn = QPushButton("Clear Proxies")
+        self.clear_proxy_btn = QPushButton(self.text_manager.get_text("clear_proxy_btn"))
         self.clear_proxy_btn.clicked.connect(self.clear_proxies)
         self.clear_proxy_btn.setObjectName("clear_proxy_btn")
         self.clear_proxy_btn.setAccessibleName("Clear Proxies Button")
@@ -301,13 +397,18 @@ class CrawlerGUI(QWidget):
         proxy_layout.addLayout(proxy_btn_layout)
         sidebar.addWidget(proxy_group)
 
-        stats_group = QGroupBox("Progress Statistics")
+        stats_group = QGroupBox(self.text_manager.get_text("progress_stats_title"))
         stats_group.setObjectName("stats_group")
         stats_layout = QVBoxLayout(stats_group)
         stats_layout.setSpacing(10)
         stats_layout.setContentsMargins(10, 10, 10, 10)
         
-        self.stats = QLabel("Status: Ready | Archived: 0 | Skipped: 0 | Failed: 0 | Total: 0")
+        self.stats = QLabel(self.text_manager.get_text("stats_format", 
+                                                      status="Ready", 
+                                                      archived="0", 
+                                                      skipped="0", 
+                                                      failed="0", 
+                                                      total="0"))
         self.stats.setFont(QFont("Arial", 10, QFont.Weight.Bold))
         self.stats.setObjectName("stats_label")
         self.stats.setAccessibleName("Statistics Display")
@@ -318,7 +419,7 @@ class CrawlerGUI(QWidget):
         progress_layout = QVBoxLayout()
         progress_layout.setSpacing(8)
         
-        archiving_label = QLabel("Archiving Progress:")
+        archiving_label = QLabel(self.text_manager.get_text("archiving_progress_label"))
         archiving_label.setObjectName("archiving_label")
         archiving_label.setAccessibleName("Archiving Progress Label")
         self.archiving_progress = QProgressBar()
@@ -340,7 +441,7 @@ class CrawlerGUI(QWidget):
         content_layout.addLayout(panel, 2)
 
         # Crawling Queue
-        crawl_group = QGroupBox("Crawling Queue")
+        crawl_group = QGroupBox(self.text_manager.get_text("crawling_queue_title"))
         crawl_group.setObjectName("crawl_group")
         crawl_layout = QVBoxLayout(crawl_group)
         crawl_layout.setSpacing(5)
@@ -353,7 +454,7 @@ class CrawlerGUI(QWidget):
         panel.addWidget(crawl_group)
 
         # Archiving Queue
-        archive_group = QGroupBox("Archiving Queue")
+        archive_group = QGroupBox(self.text_manager.get_text("archiving_queue_title"))
         archive_group.setObjectName("archive_group")
         archive_layout = QVBoxLayout(archive_group)
         archive_layout.setSpacing(5)
@@ -370,9 +471,24 @@ class CrawlerGUI(QWidget):
 
     def populate_theme_menu(self, menu):
         menu.clear()
+        theme_menu = menu.parent().findChild(QMenu, "theme_menu")
+        if theme_menu:
+            theme_menu.setTitle(self.text_manager.get_text("themes_menu"))
+        
         for theme in self.theme_manager.available_themes:
             action = QAction(theme.capitalize(), self)
             action.triggered.connect(lambda checked, t=theme: self.set_theme(t))
+            menu.addAction(action)
+
+    def populate_text_menu(self, menu):
+        menu.clear()
+        texts_menu = menu.parent().findChild(QMenu, "texts_menu")
+        if texts_menu:
+            texts_menu.setTitle(self.text_manager.get_text("texts_menu"))
+        
+        for text in self.text_manager.available_texts:
+            action = QAction(text.capitalize(), self)
+            action.triggered.connect(lambda checked, t=text: self.set_language(t))
             menu.addAction(action)
 
     def set_theme(self, theme_name):
@@ -381,10 +497,13 @@ class CrawlerGUI(QWidget):
         save_settings()
         self.apply_theme()
 
+    def set_language(self, language_name):
+        self.text_manager.set_language(language_name)
+        self.update_ui_texts()
+
     def apply_theme(self):
         app = QApplication.instance()
         self.theme_manager.apply_theme(self.current_theme, app, self)
-        # Force repaint to ensure theme changes are applied
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.style().unpolish(self)
         self.style().polish(self)
@@ -394,6 +513,49 @@ class CrawlerGUI(QWidget):
         dialog = SettingsDialog(self)
         if dialog.exec() == QDialog.DialogCode.Accepted:
             self.apply_theme()
+
+    def update_ui_texts(self):
+        """Update all UI texts with current labels"""
+        for group_box in self.findChildren(QGroupBox):
+            object_name = group_box.objectName()
+            if object_name == "url_group":
+                group_box.setTitle(self.text_manager.get_text("url_input_title"))
+            elif object_name == "proxy_group":
+                group_box.setTitle(self.text_manager.get_text("proxy_config_title"))
+            elif object_name == "stats_group":
+                group_box.setTitle(self.text_manager.get_text("progress_stats_title"))
+            elif object_name == "crawl_group":
+                group_box.setTitle(self.text_manager.get_text("crawling_queue_title"))
+            elif object_name == "archive_group":
+                group_box.setTitle(self.text_manager.get_text("archiving_queue_title"))
+        self.add_url_btn.setText(self.text_manager.get_text("add_url_btn"))
+        self.start_btn.setText(self.text_manager.get_text("start_btn"))
+        self.pause_btn.setText(self.text_manager.get_text("pause_btn"))
+        self.resume_btn.setText(self.text_manager.get_text("resume_btn"))
+        self.stop_btn.setText(self.text_manager.get_text("stop_btn"))
+        self.save_proxy_btn.setText(self.text_manager.get_text("save_proxy_btn"))
+        self.clear_proxy_btn.setText(self.text_manager.get_text("clear_proxy_btn"))
+        
+        self.url_entry.setPlaceholderText(self.text_manager.get_text("url_placeholder"))
+        self.proxy_text.setPlaceholderText(self.text_manager.get_text("proxy_placeholder"))
+        for label in self.findChildren(QLabel):
+            object_name = label.objectName()
+            if object_name == "proxy_label":
+                label.setText(self.text_manager.get_text("proxy_label"))
+            elif object_name == "archiving_label":
+                label.setText(self.text_manager.get_text("archiving_progress_label"))
+        menubar = self.layout().menuBar()
+        for menu in menubar.findChildren(QMenu):
+            if menu.objectName() == "file_menu":
+                menu.setTitle(self.text_manager.get_text("file_menu"))
+            elif menu.objectName() == "theme_menu":
+                menu.setTitle(self.text_manager.get_text("themes_menu"))
+            elif menu.objectName() == "texts_menu":
+                menu.setTitle(self.text_manager.get_text("texts_menu"))
+                
+        for action in self.findChildren(QAction):
+            if action.objectName() == "settings_action":
+                action.setText(self.text_manager.get_text("settings_action"))
 
     def add_url(self):
         url = self.url_entry.text().strip()
@@ -550,13 +712,13 @@ class CrawlerGUI(QWidget):
             self.archive_list.addItem(list_item)
 
     def update_stats(self, status, archived, skipped, failed, total):
-        self.stats.setText(
-            f"Status: {status} | "
-            f"Archived: <span style='color:#00cc66'>{archived}</span> | "
-            f"Skipped: <span style='color:#ff9900'>{skipped}</span> | "
-            f"Failed: <span style='color:#ff3333'>{failed}</span> | "
-            f"Total: {total}"
-        )
+        formatted_text = self.text_manager.get_text("stats_format",
+                                                  status=status,
+                                                  archived=archived,
+                                                  skipped=skipped,
+                                                  failed=failed,
+                                                  total=total)
+        self.stats.setText(formatted_text)
 
     def update_button_states(self):
         self.start_btn.setEnabled(not self.is_running)
