@@ -144,6 +144,7 @@ def apply(app, widget):
 
     QProgressBar::chunk {
         border-radius: 0px;
+        background-color: #433D68;
     }
     """)
 
