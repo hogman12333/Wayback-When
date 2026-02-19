@@ -53,19 +53,6 @@ environment.systemPackages = [
 ];
 ```
 
----
-
-## Windows
-1. Install Python from https://www.python.org/downloads/  
-2. Install Google Chrome from https://www.google.com/chrome/  
-3. Open PowerShell:
-```
-py -m pip install --upgrade pip
-py -m pip install requests beautifulsoup4 waybackpy selenium webdriver-manager selenium-stealth networkx matplotlib
-```
-
----
-
 After the dependencies have been installed, it is a good idea to create a Python virtual envoriment:
 
 ```
@@ -91,3 +78,16 @@ Or run the GUI frontend:
 ```
 
 ---
+
+## Windows
+1. Install Python from https://www.python.org/downloads/  
+2. Install Google Chrome from https://www.google.com/chrome/  
+3. Open PowerShell:
+```
+py -m pip install --upgrade pip
+py -m pip install requests beautifulsoup4 waybackpy selenium webdriver-manager selenium-stealth networkx matplotlib
+```
+
+---
+
+
