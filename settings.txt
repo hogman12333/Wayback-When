@@ -4,7 +4,6 @@
   "archiving_cooldown": 90,
   "debug_mode": false,
   "default_archiving_action": "N",
-  "enable_visual_tree_generation": false,
   "max_archiver_workers": 1,
   "max_crawler_workers": 10,
   "min_link_search_delay": 0.0,
