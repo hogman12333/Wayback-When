@@ -1,0 +1,25 @@
+Key,Value
+url_input_title,URL Input
+url_placeholder,"Enter URL (e.g., example.com)"
+add_url_btn,Add URL
+url_list_title,URL List
+start_btn,▶ Start
+pause_btn,⏸ Pause
+resume_btn,⏯ Resume
+stop_btn,⏹ Stop
+proxy_config_title,Proxy Configuration
+proxy_placeholder,"http://user:pass@host:port
+socks5://user:pass@host:port"
+save_proxy_btn,Save Proxies
+clear_proxy_btn,Clear Proxies
+progress_stats_title,Progress Statistics
+stats_format,Status: {status} | Archived: {archived} | Skipped: {skipped} | Failed: {failed} | Total: {total}
+crawling_queue_title,Crawling Queue
+archiving_queue_title,Archiving Queue
+file_menu,&File
+settings_action,&Settings
+themes_menu,&Themes
+texts_menu,&Languages
+proxy_label,Proxies (one per line):
+archiving_progress_label,Archiving Progress:
+text_editor_action,&Change Languages
