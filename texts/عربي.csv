@@ -1,0 +1,25 @@
+المفتاح,القيمة
+url_input_title,إدخال الرابط
+url_placeholder,"أدخل الرابط (مثال: example.com)"
+add_url_btn,إضافة رابط
+url_list_title,قائمة الروابط
+start_btn,▶ بدء
+pause_btn,⏸ إيقاف مؤقت
+resume_btn,⏯ استئناف
+stop_btn,⏹ إيقاف
+proxy_config_title,إعدادات البروكسي
+proxy_placeholder,"http://user:pass@host:port
+socks5://user:pass@host:port"
+save_proxy_btn,حفظ البروكسيات
+clear_proxy_btn,مسح البروكسيات
+progress_stats_title,إحصائيات التقدم
+stats_format,"الحالة: {status} | المؤرشفة: {archived} | المتخطاة: {skipped} | الفاشلة: {failed} | الإجمالي: {total}"
+crawling_queue_title,قائمة انتظار الزحف
+archiving_queue_title,قائمة انتظار الأرشفة
+file_menu,&ملف
+settings_action,&الإعدادات
+themes_menu,&السمات
+texts_menu,&اللغات
+proxy_label,"البروكسيات (واحد في كل سطر):"
+archiving_progress_label,تقدم الأرشفة:
+text_editor_action,&تغيير اللغة
