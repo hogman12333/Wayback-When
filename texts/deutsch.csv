@@ -1,4 +1,6 @@
 Schlüssel,Wert
+window_title,Wayback When
+settings_dialog_title,Einstellungen
 url_input_title,URL-Eingabe
 url_placeholder,"URL eingeben (z. B. example.com)"
 add_url_btn,URL hinzufügen
@@ -23,3 +25,7 @@ texts_menu,&Sprachen
 proxy_label,"Proxys (eine pro Zeile):"
 archiving_progress_label,Archivierungsfortschritt:
 text_editor_action,&Sprache ändern
+menu_button,Menü
+no_urls_warning,Keine URLs zu verarbeiten
+crawler_running_warning,Crawler läuft bereits
+settings_button_tooltip,Menü öffnen
