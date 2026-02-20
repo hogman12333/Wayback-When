@@ -1,6 +1,143 @@
 from PyQt6.QtGui import QPalette, QColor
 from PyQt6.QtCore import Qt
 
+# ===== CUSTOMISABLE VARIABLES =====
+# Uncomment and modify any of these variables to customise the theme and layout
+
+# --- Main Window ---
+# window_bg = "#1f1d2e"
+# window_text = "#e0def4"
+# window_font_family = '"Segoe UI", Arial, sans-serif'
+# window_font_size = "11pt"
+# window_font_weight = "normal"
+
+# --- Group Box ---
+# group_bg = "#1f1d2e"
+# group_border_color = "#26233a"
+# group_border_width = "2px"
+# group_border_radius = "8px"
+# group_margin_top = "1em"
+# group_padding_top = "15px"
+# group_title_color = "#e0def4"
+# group_title_bg = "transparent"
+# group_title_padding = "0 8px 0 8px"
+# group_title_left = "10px"
+# group_title_font_weight = "bold"
+
+# --- Input Elements ---
+# input_bg = "#26233a"
+# input_text = "#e0def4"
+# input_border_color = "#403d52"
+# input_border_width = "1px"
+# input_border_radius = "4px"
+# input_padding = "0px"
+# input_selection_bg = "#31748f"
+# input_selection_text = "#e0def4"
+# input_placeholder = "#a0a0a0"
+
+# --- Buttons ---
+# button_bg = "#26233a"
+# button_text = "#e0def4"
+# button_border_color = "#403d52"
+# button_border_width = "1px"
+# button_border_radius = "4px"
+# button_padding = "8px 12px"
+# button_min_width = "120px"
+# button_min_height = "40px"
+# button_font_weight = "bold"
+
+# Button States
+# button_hover_bg = "#403d52"
+# button_hover_border = "#c4a7e7"
+# button_pressed_bg = "#191724"
+# button_pressed_border = "#c4a7e7"
+# button_disabled_bg = "#26233a"
+# button_disabled_text = "#6e6a86"
+# button_disabled_border = "#403d52"
+
+# --- Menu Bar ---
+# menubar_bg = "#191724"
+# menubar_text = "#e0def4"
+# menubar_border = "#403d52"
+# menubar_border_width = "1px"
+# menubar_item_padding = "4px 8px"
+# menubar_item_spacing = "2px"
+# menubar_corner_radius = "2px"
+
+# Menu Bar Items
+# menubar_item_bg = "transparent"
+# menubar_item_bg_hover = "#44415a"
+# menubar_item_bg_selected = "#44415a"
+# menubar_item_text = "#e0def4"
+# menubar_item_text_hover = "#ffffff"
+# menubar_item_text_selected = "#ffffff"
+
+# --- Dropdown Menus ---
+# menu_bg = "#26233a"
+# menu_border = "#403d52"
+# menu_border_radius = "4px"
+# menu_padding = "2px"
+# menu_margin = "0px"
+
+# Menu Items
+# menu_item_padding = "4px 24px 4px 8px"
+# menu_item_bg_hover = "#44415a"
+# menu_item_bg_selected = "#44415a"
+# menu_item_text = "#e0def4"
+# menu_item_text_hover = "#ffffff"
+# menu_item_text_selected = "#ffffff"
+# menu_separator_color = "#403d52"
+
+# --- Scroll Bars ---
+# scrollbar_width = "15px"
+# scrollbar_height = "15px"
+# scrollbar_bg = "#26233a"
+# scrollbar_border = "#403d52"
+# scrollbar_handle_bg = "#44415a"
+# scrollbar_handle_border_radius = "7px"
+# scrollbar_handle_min_height = "20px"
+# scrollbar_handle_min_width = "20px"
+# scrollbar_handle_hover_bg = "#56526e"
+# scrollbar_handle_pressed_bg = "#676382"
+# scrollbar_add_line = "none"
+# scrollbar_sub_line = "none"
+
+# --- Progress Bar ---
+# progressbar_bg = "#26233a"
+# progressbar_border = "#403d52"
+# progressbar_border_radius = "4px"
+# progressbar_chunk_bg = "#433D68"
+# progressbar_chunk_border_radius = "0px"
+# progressbar_text_align = "center"
+
+# --- Tooltips ---
+# tooltip_bg = "#26233a"
+# tooltip_text = "#e0def4"
+# tooltip_border = "#403d52"
+# tooltip_border_radius = "4px"
+# tooltip_padding = "4px 8px"
+
+# --- Special Widgets ---
+# control_container_bg = "transparent"
+
+# --- Checkboxes/Radios ---
+# checkbox_bg = "#26233a"
+# checkbox_border = "#403d52"
+# checkbox_border_radius = "3px"
+# checkbox_checked_bg = "#433D68"
+# checkbox_checked_border = "#433D68"
+# checkbox_size = "16px"
+
+# --- Sliders ---
+# slider_groove_bg = "#26233a"
+# slider_groove_border = "#403d52"
+# slider_handle_bg = "#433D68"
+# slider_handle_border = "#352f4f"
+# slider_handle_radius = "8px"
+# slider_handle_width = "16px"
+# slider_handle_height = "16px"
+
+# ===== END OF CUSTOMISABLE VARIABLES =====
 
 def apply(app, widget):
     # --- Palette ---
