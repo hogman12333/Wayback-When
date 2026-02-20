@@ -254,7 +254,7 @@ class CrawlerGUI(QWidget):
 
     def init_ui(self):
         self.setWindowTitle("Wayback When")
-        self.resize(1000, 700)
+        self.resize(1400, 1080)
         self.setObjectName("main_window")
 
         main_layout = QVBoxLayout(self)
@@ -552,7 +552,7 @@ class CrawlerGUI(QWidget):
                 menu.setTitle(self.text_manager.get_text("themes_menu"))
             elif menu.objectName() == "texts_menu":
                 menu.setTitle(self.text_manager.get_text("texts_menu"))
-                
+
         for action in self.findChildren(QAction):
             if action.objectName() == "settings_action":
                 action.setText(self.text_manager.get_text("settings_action"))
