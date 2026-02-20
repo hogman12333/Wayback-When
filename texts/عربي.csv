@@ -1,4 +1,5 @@
-المفتاح,القيمة
+window_title,Wayback When
+settings_dialog_title,الإعدادات
 url_input_title,إدخال الرابط
 url_placeholder,"أدخل الرابط (مثال: example.com)"
 add_url_btn,إضافة رابط
@@ -23,3 +24,7 @@ texts_menu,&اللغات
 proxy_label,"البروكسيات (واحد في كل سطر):"
 archiving_progress_label,تقدم الأرشفة:
 text_editor_action,&تغيير اللغة
+menu_button,القائمة
+no_urls_warning,لا توجد روابط للمعالجة
+crawler_running_warning,أداة الزحف تعمل بالفعل
+settings_button_tooltip,فتح القائمة
