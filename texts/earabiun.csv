@@ -5,7 +5,7 @@ add_url_btn,Idafat rabit
 url_list_title,Qaimat al-rawabit
 start_btn,▶ Bada'
 pause_btn,⏸ Iqaf mu'aqqat
-resume_btn,⏯ Istinaf
+resume_btn,⏯ IstinafQ
 stop_btn,⏹ Iqaf
 proxy_config_title,I'dadat al-proxy
 proxy_placeholder,"http://user:pass@host:port
