@@ -1,6 +1,8 @@
 Clave,Valor
+window_title,Wayback When
+settings_dialog_title,Configuración
 url_input_title,Entrada de URL
-url_placeholder,"Ingrese URL (p. ej., example.com)"
+url_placeholder,Ingrese URL (p. ej., example.com)
 add_url_btn,Añadir URL
 url_list_title,Lista de URL
 start_btn,▶ Iniciar
@@ -8,18 +10,21 @@ pause_btn,⏸ Pausar
 resume_btn,⏯ Reanudar
 stop_btn,⏹ Detener
 proxy_config_title,Configuración de Proxy
-proxy_placeholder,"http://user:pass@host:port
-socks5://user:pass@host:port"
+proxy_placeholder,http://user:pass@host:port
 save_proxy_btn,Guardar Proxies
 clear_proxy_btn,Eliminar Proxies
 progress_stats_title,Estadísticas de Progreso
-stats_format,"Estado: {status} | Archivados: {archived} | Omitidos: {skipped} | Fallidos: {failed} | Total: {total}"
+stats_format,Estado: {status} | Archivados: {archived} | Omitidos: {skipped} | Fallidos: {failed} | Total: {total}
 crawling_queue_title,Cola de Rastreo
 archiving_queue_title,Cola de Archivado
 file_menu,&Archivo
 settings_action,&Configuración
 themes_menu,&Temas
 texts_menu,&Idiomas
-proxy_label,"Proxies (uno por línea):"
+proxy_label,Proxies (uno por línea):
 archiving_progress_label,Progreso de Archivado:
 text_editor_action,&Cambiar Idiomas
+menu_button,Menú
+no_urls_warning,No hay URLs para procesar
+crawler_running_warning,El rastreador ya está en ejecución
+settings_button_tooltip,Abrir menú
