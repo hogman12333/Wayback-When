@@ -1,4 +1,6 @@
 Key,Value
+window_title,Wayback When
+settings_dialog_title,Settings
 url_input_title,URL Input
 url_placeholder,"Enter URL (e.g., example.com)"
 add_url_btn,Add URL
@@ -23,3 +25,7 @@ texts_menu,&Languages
 proxy_label,Proxies (one per line):
 archiving_progress_label,Archiving Progress:
 text_editor_action,&Change Languages
+menu_button,Menu
+no_urls_warning,No URLs to process
+crawler_running_warning,Crawler is already running
+settings_button_tooltip,Open Menu
