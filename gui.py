@@ -267,39 +267,35 @@ class CrawlerGUI(QWidget):
         main_layout.setSpacing(15)
         main_layout.setContentsMargins(15, 15, 15, 15)
 
-        # Create menu button
-        self.settings_button = QPushButton(self.text_manager.get_text("menu_button"))
-        self.settings_button.setObjectName("settings_button")
-        self.settings_button.setFixedSize(80, 32)
-        self.settings_button.setToolTip(self.text_manager.get_text("settings_button_tooltip"))
-        
-        # Create menu and actions
-        self.settings_menu = QMenu(self)
-        self.settings_action = QAction(self.text_manager.get_text("settings_action"), self)
-        self.settings_action.triggered.connect(self.show_settings)
-        
-        self.themes_action = QAction(self.text_manager.get_text("themes_menu"), self)
-        self.themes_action.triggered.connect(self.show_themes_menu)
-        
-        self.languages_action = QAction(self.text_manager.get_text("texts_menu"), self)
-        self.languages_action.triggered.connect(self.show_languages_menu)
-        
-        self.settings_menu.addAction(self.settings_action)
-        self.settings_menu.addAction(self.themes_action)
-        self.settings_menu.addAction(self.languages_action)
-        
-        self.settings_button.setMenu(self.settings_menu)
-        
-        top_bar = QHBoxLayout()
-        top_bar.addStretch()
-        top_bar.addWidget(self.settings_button)
-        main_layout.addLayout(top_bar)
-
         # Main content area
         content_layout = QHBoxLayout()
         content_layout.setSpacing(15)
         main_layout.addLayout(content_layout)
 
+        # Create menu
+        self.menu_bar = QMenuBar(self)
+        main_layout.setMenuBar(self.menu_bar)
+
+        # File menu
+        self.file_menu = self.menu_bar.addMenu(self.text_manager.get_text("file_menu"))
+
+        self.settings_action = QAction(self.text_manager.get_text("settings_action"), self)
+        self.settings_action.triggered.connect(self.show_settings)
+        self.file_menu.addAction(self.settings_action)
+
+        # Themes menu
+        self.themes_menu = self.menu_bar.addMenu(self.text_manager.get_text("themes_menu"))
+        for theme in self.theme_manager.available_themes:
+            action = QAction(theme.capitalize(), self)
+            action.triggered.connect(lambda checked, t=theme: self.set_theme(t))
+            self.themes_menu.addAction(action)
+
+        # Languages menu
+        self.languages_menu = self.menu_bar.addMenu(self.text_manager.get_text("texts_menu"))
+        for text in self.text_manager.available_texts:
+            action = QAction(text.capitalize(), self)
+            action.triggered.connect(lambda checked, t=text: self.set_language(t))
+            self.languages_menu.addAction(action)
         # Left sidebar
         sidebar = QVBoxLayout()
         sidebar.setSpacing(15)
@@ -442,20 +438,6 @@ class CrawlerGUI(QWidget):
         self.update_proxy_display()
         self.apply_theme()
 
-    def show_themes_menu(self):
-        menu = QMenu(self)
-        for theme in self.theme_manager.available_themes:
-            action = menu.addAction(theme.capitalize())
-            action.triggered.connect(lambda checked, t=theme: self.set_theme(t))
-        menu.exec(self.settings_button.mapToGlobal(self.settings_button.rect().bottomLeft()))
-
-    def show_languages_menu(self):
-        menu = QMenu(self)
-        for text in self.text_manager.available_texts:
-            action = menu.addAction(text.capitalize())
-            action.triggered.connect(lambda checked, t=text: self.set_language(t))
-        menu.exec(self.settings_button.mapToGlobal(self.settings_button.rect().bottomLeft()))
-
     def set_theme(self, theme_name):
         self.current_theme = theme_name
         SETTINGS["theme"] = theme_name
@@ -480,15 +462,12 @@ class CrawlerGUI(QWidget):
             self.apply_theme()
 
     def update_ui_texts(self):
-        """Update all UI texts when language changes"""
         self.setWindowTitle(self.text_manager.get_text("window_title"))
-        self.settings_button.setText(self.text_manager.get_text("menu_button"))
-        self.settings_button.setToolTip(self.text_manager.get_text("settings_button_tooltip"))
+        self.file_menu.setTitle(self.text_manager.get_text("file_menu"))
         self.settings_action.setText(self.text_manager.get_text("settings_action"))
-        self.themes_action.setText(self.text_manager.get_text("themes_menu"))
-        self.languages_action.setText(self.text_manager.get_text("texts_menu"))
+        self.themes_menu.setTitle(self.text_manager.get_text("themes_menu"))
+        self.languages_menu.setTitle(self.text_manager.get_text("texts_menu"))
         
-        # Update group boxes
         for group in self.findChildren(QGroupBox):
             if group.objectName() == "url_group":
                 group.setTitle(self.text_manager.get_text("url_input_title"))
