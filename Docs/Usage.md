@@ -1,5 +1,3 @@
-# USAGE.md
-
 ## What This Program Does
 
 This program:
