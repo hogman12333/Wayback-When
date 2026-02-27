@@ -45,7 +45,6 @@ warnings.filterwarnings("ignore", category=XMLParsedAsHTMLWarning)
 SETTINGS_FILE = "settings.txt"
 
 def load_settings():
-    """Load settings from file if it exists."""
     try:
         if Path(SETTINGS_FILE).exists():
             with open(SETTINGS_FILE, 'r') as f:
@@ -92,11 +91,11 @@ rate_limit_active_until_time = 0.0
 MIN_ARCHIVE_DELAY_SECONDS = 60 / SETTINGS["urls_per_minute_limit"]
 
 class CaptchaDetectedError(Exception):
-    """Raised when a CAPTCHA is detected on a page."""
+    #Raised when a CAPTCHA is detected on a page.
     pass
 
 class ConnectionRefusedForCrawlerError(Exception):
-    """Raised when a connection is refused for a given URL branch."""
+    #Raised when a connection is refused for a given URL branch.
     pass
 
 '''
@@ -204,14 +203,12 @@ IRRELEVANT_PATH_SEGMENTS = (
 )
 
 def log_message(level: str, message: str, debug_only: bool = False) -> None:
-    """Standardized logging function."""
     if debug_only and not SETTINGS["debug_mode"]:
         return
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     print(f"[{timestamp}][{level.upper()}] {message}")
 
 def generate_random_user_agent() -> str:
-    """Generate a random realistic User-Agent string."""
     os_part = random.choice(OS_TYPES)
     browser_template = random.choice(BROWSER_TYPES)
 
@@ -228,7 +225,6 @@ def generate_random_user_agent() -> str:
     return f"Mozilla/5.0 ({os_part}) {browser}"
 
 def normalize_url(url: str) -> str:
-    """Normalize URL by removing tracking parameters, standardizing path, etc."""
     parsed = urlparse(url)
 
     scheme = parsed.scheme.lower()
@@ -260,7 +256,6 @@ def normalize_url(url: str) -> str:
     return urlunparse((scheme, netloc, path, parsed.params, query, fragment))
 
 def get_root_domain(netloc: str) -> str:
-    """Extract root domain from netloc (simple heuristic)."""
     netloc = netloc.lower()
     parts = netloc.split(".")
     if len(parts) > 2 and parts[0] == "www":
@@ -270,7 +265,6 @@ def get_root_domain(netloc: str) -> str:
     return netloc
 
 def is_irrelevant_link(url: str) -> bool:
-    """Check if URL should be considered irrelevant for crawling."""
     parsed_url = urlparse(url)
     path = parsed_url.path.lower()
 
@@ -283,7 +277,6 @@ def is_irrelevant_link(url: str) -> bool:
     return False
 
 def redact_proxy(proxy: str) -> str:
-    """Strips username/password from a proxy string for logging."""
     parsed = urlparse(proxy)
     if parsed.username or parsed.password:
         netloc = parsed.hostname
@@ -306,7 +299,6 @@ retry_strategy = Retry(
 adapter = HTTPAdapter(max_retries=retry_strategy)
 
 def get_requests_session() -> requests.Session:
-    """Return a configured requests.Session with retries and optional proxy."""
     session = requests.Session()
     session.mount("http://", adapter)
     session.mount("https://", adapter)
@@ -324,13 +316,10 @@ WebDriver Manager
 =========================
 '''
 class WebDriverManager:
-    """Encapsulates Selenium WebDriver creation and teardown."""
-
     def __init__(self) -> None:
         pass
 
     def create_driver(self) -> webdriver.Chrome:
-        """Create and configure a headless Chrome WebDriver with stealth."""
         options = Options()
         options.add_argument("--headless=new")
         options.add_argument("--no-sandbox")
@@ -412,7 +401,6 @@ class WebDriverManager:
         return driver
 
     def destroy_driver(self, driver: webdriver.Chrome) -> None:
-        """Safely quit the WebDriver."""
         try:
             driver.quit()
         except Exception:
@@ -424,13 +412,11 @@ Crawler
 =========================
 '''
 class Crawler:
-    """Responsible for crawling pages using Selenium and extracting internal links."""
 
     def __init__(self, webdriver_manager: WebDriverManager) -> None:
         self.webdriver_manager = webdriver_manager
 
     def _get_links_from_page_content(self, base_url: str, driver: webdriver.Chrome, initial_url_path: str):
-        """Core logic to load a page and extract internal links."""
         links = set()
         relationships_on_page = []
 
@@ -630,7 +616,6 @@ class Crawler:
         return set(), []
 
     def _try_requests_first(self, url, initial_url_path: str):
-        """Attempt to fetch page with requests before using Selenium."""
         try:
             session = get_requests_session()
             headers = {"User-Agent": generate_random_user_agent()}
@@ -687,7 +672,6 @@ class Crawler:
             return None
 
     def crawl_single_page(self, url_to_crawl: str, initial_url_path: str):
-        """Try fast requests-based crawl first, then fall back to Selenium."""
         fast_result = self._try_requests_first(url_to_crawl, initial_url_path)
         if fast_result:
             return fast_result
@@ -706,8 +690,6 @@ Archiver
 =========================
 '''
 class Archiver:
-    """Handles Wayback Machine archiving with cooldown and rate limiting."""
-
     def __init__(self) -> None:
         self.global_archive_action = SETTINGS.get(
             "default_archiving_action", "n"
@@ -722,7 +704,6 @@ class Archiver:
             self.global_archive_action = "n"
 
     def should_archive(self, url: str):
-        """Determine if URL should be archived based on cooldown and global action."""
         user_agent = generate_random_user_agent()
         _ = get_requests_session()  
         wayback = waybackpy.Url(url, user_agent)
@@ -788,7 +769,6 @@ class Archiver:
         return False, wayback
 
     def process_link_for_archiving(self, link: str) -> tuple[str, str]:
-        """Check if link needs archiving and attempt to save it to Wayback."""
         global last_archive_time, rate_limit_active_until_time
 
         needs_save, wb_obj = self.should_archive(link,)
@@ -890,55 +870,11 @@ class Archiver:
                     time.sleep(random.uniform(2, 5)) 
 
         return "FAILED", link 
-
-'''
-=========================
-  Visual Graph Builder
-=========================
-'''
-class VisualGraphBuilder:
-    """Builds and optionally displays a link graph using networkx."""
-
-    def __init__(self) -> None:
-        self.edges = []
-
-    def add_relationships(self, relationships):
-        """Add (source, target) relationships."""
-        self.edges.extend(relationships)
-
-    def build_and_show(self):
-        """Build and display the graph if enabled."""
-        if not SETTINGS["enable_visual_tree_generation"]:
-            return
-        if not self.edges:
-            log_message("INFO", "No relationships to visualize.", debug_only=True)
-            return
-
-        graph = nx.DiGraph()
-        graph.add_edges_from(self.edges)
-
-        plt.figure(figsize=(12, 8))
-        pos = nx.spring_layout(graph, k=0.3)
-        nx.draw(
-            graph,
-            pos,
-            with_labels=False,
-            node_size=50,
-            arrows=True,
-            arrowstyle="-|>",
-            arrowsize=10,
-        )
-        plt.title("Crawl Link Graph")
-        plt.tight_layout()
-        plt.show()
-
-'''
 =========================
    Crawl Coordinator
 =========================
 '''
 class CrawlCoordinator:
-    """Coordinates crawling and archiving with concurrency and queues."""
 
     def __init__(self) -> None:
         self.webdriver_manager = WebDriverManager()
@@ -964,7 +900,6 @@ class CrawlCoordinator:
         self._resolve_worker_counts()
 
     def _resolve_worker_counts(self) -> None:
-        """Resolve max workers for crawler and archiver based on SETTINGS."""
         max_crawler_workers_setting = SETTINGS["max_crawler_workers"]
         if max_crawler_workers_setting == 0:
             self.max_crawler_workers = None  
@@ -988,7 +923,6 @@ class CrawlCoordinator:
             )
 
     def add_initial_urls(self, urls):
-        """Normalize and enqueue initial URLs for crawling and archiving."""
         for url in urls:
             parsed_url = urlparse(url)
             if not parsed_url.scheme:
@@ -1016,7 +950,6 @@ class CrawlCoordinator:
         self.total_links_to_archive = len(self.queue_for_archiving)
 
     def add_url_live(self, url: str):
-        """Add a new URL while the crawler is running."""
         parsed_url = urlparse(url)
         if not parsed_url.scheme:
             url = "http://" + url
@@ -1043,24 +976,20 @@ class CrawlCoordinator:
             self.total_links_to_archive += 1
 
     def pause(self):
-        """Pause crawling and archiving operations."""
         with self.pause_lock:
             self.is_paused = True
             log_message("INFO", "Crawling and archiving paused", debug_only=False)
 
     def resume(self):
-        """Resume crawling and archiving operations."""
         with self.pause_lock:
             self.is_paused = False
             log_message("INFO", "Crawling and archiving resumed", debug_only=False)
 
     def stop(self):
-        """Stop all crawling and archiving operations."""
         self.should_stop = True
         log_message("INFO", "Stopping crawling and archiving", debug_only=False)
 
     def reset_state(self):
-        """Reset the coordinator's state while keeping settings and initial URLs"""
         self.crawling_queue = deque()
         self.queue_for_archiving = deque()
         self.visited_urls = set()
@@ -1075,7 +1004,6 @@ class CrawlCoordinator:
         self.should_stop = False
 
     def is_completed(self):
-        """Check if the coordinator has finished processing"""
         return (not self.crawling_queue and 
                 not self.queue_for_archiving and 
                 not self.crawling_futures_set and 
@@ -1084,7 +1012,6 @@ class CrawlCoordinator:
                 not self.should_stop)
 
     def _submit_crawl_tasks(self, executor):
-        """Submit crawl tasks while respecting queue and skipped domains and worker limits."""
         while (
             self.crawling_queue
             and (self.max_crawler_workers is None or len(self.crawling_futures_set) < self.max_crawler_workers)
@@ -1104,7 +1031,6 @@ class CrawlCoordinator:
             log_message("INFO", f"Submitted crawl task for: {url}", debug_only=True)
 
     def _submit_archive_tasks(self, executor):
-        """Submit archiving tasks for URLs in the archiving queue, respecting worker limits."""
         while (
             self.queue_for_archiving
             and (self.max_archiver_workers is None or len(self.archiving_futures_set) < self.max_archiver_workers)
@@ -1117,7 +1043,6 @@ class CrawlCoordinator:
             log_message("DEBUG", f"Submitted archive task for: {url}", debug_only=True)
 
     def run(self):
-        """Main coordination loop: crawl + archive until queues are empty or stopped."""
         log_message(
             "INFO",
             f"Starting main processing loop with {len(self.crawling_queue)} initial URLs.",
@@ -1301,7 +1226,6 @@ class CrawlCoordinator:
         print("=======================================")
 
 def main():
-    """Main function to orchestrate crawling and archiving."""
     clear_output(wait=True)
 
     if not SETTINGS["debug_mode"]:
