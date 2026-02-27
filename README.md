@@ -1,30 +1,36 @@
 # Wayback When
 
-Wayback When is a tool that crawls a website and saves its pages to the Internet Archive’s Wayback Machine. It uses a headless browser to load pages the same way a real visitor would, so it can find links that only appear after scripts run.
-As it crawls, it keeps track of every internal link it discovers. Before archiving anything, it checks when the page was last saved. If the page was archived recently, it skips it. If it hasn’t been saved in a while, it sends it to the Wayback Machine.
-The goal is to make website preservation easier, faster, and less repetitive. Instead of manually checking pages or wasting time on duplicates, Wayback When handles the crawling, the decision‑making, and the archiving for you.
+Wayback When is a tool that crawls a website and saves its pages to the Internet Archive's Wayback Machine. It uses a headless browser to load pages the same way a real visitor would, so it can find links that only appear after scripts run.
+As it crawls, it keeps track of every internal link it discovers. Before archiving anything, it checks when the page was last saved. If the page was archived recently, it skips it. If it hasn't been saved in a while, it sends it to the Wayback Machine.
+The goal is to make website preservation easier, faster, and less repetitive. Instead of manually checking pages or wasting time on duplicates, Wayback When handles the crawling, the decision-making, and the archiving for you.
 
 ## Scraper
-Wayback When uses a Selenium‑based scraper to explore a website and collect every link it can find. Instead of looking only at the raw HTML, it loads each page in a full browser environment, just like a real visitor. This allows it to find every link while remaining invisible to anti-scraping protections.
+Wayback When uses a Selenium-based scraper to explore a website and collect every link it can find. Instead of looking only at the raw HTML, it loads each page in a full browser environment, just like a real visitor. This allows it to find every link while remaining invisible to anti-scraping protections.
 
 ## Archiver
-The archiver decides which pages actually need to be saved. For every link the scraper finds, it checks the Wayback Machine to see when the page was last archived. If the snapshot is recent, it skips it. If it’s old or missing, it sends a new save request. It also handles rate limits and retries so the process can run for long periods without manual supervision.
+The archiver decides which pages actually need to be saved. For every link the scraper finds, it checks the Wayback Machine to see when the page was last archived. If the snapshot is recent, it skips it. If it's old or missing, it sends a new save request. It also handles rate limits and retries so the process can run for long periods without manual supervision.
 
 # V1.3 Release
 
 ## New Additions and Enhancements in V1.3
 
-### Settings
-
 ### Added Features
+- New GUI Mode
+- Theming Capabilities
+- Language Support
+- Screenreader Support
+- The ability to Stop, Pause, and Resume the program
+- Improved error logging and status visibility
 
-### Error Handling
-
-### Bug Fixes
+### Settings
+- Deprecated `enable_visual_tree_generation` setting. 
+- Settings previously hardcoded in the script configuration are now accessible via settings.txt.
 
 ### Miscellaneous
-- depreciated ``visual_tree_generation``
-## Contributing
+- Small improvement to Memory Usage through optimized thread management.
+- Transitioned from Command Line Interface (CLI) to Graphical User Interface (GUI) for primary interaction while ensuring that CLI still functions as normal.
+- Updated dependency requirements to support GUI framework and accessibility features.
 
+## Contributing
 Pull requests are welcome. For major changes, please open an issue first
 to discuss what you would like to change.
