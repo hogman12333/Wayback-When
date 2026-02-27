@@ -4,6 +4,4 @@ waybackpy
 selenium
 webdriver-manager
 selenium-stealth
-networkx 
-matplotlib
 pyqt6
