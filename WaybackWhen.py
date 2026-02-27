@@ -60,7 +60,6 @@ SETTINGS = {
     "archiving_cooldown": 90,          # Days between archiving the same URL
     "debug_mode": False,
     "default_archiving_action": "N",   # 'n' normal, 'a' archive all, 's' skip all
-    "enable_visual_tree_generation": False,
     "max_archiver_workers": 1,         # 0 = unlimited
     "max_crawler_workers": 10,         # 0 = Unlimited
     "min_link_search_delay": 0.0,
@@ -534,8 +533,6 @@ class Crawler:
                             debug_only=True
                         )
                         links.add(clean_url)
-                        if SETTINGS["enable_visual_tree_generation"]:
-                            relationships_on_page.append((base_url, clean_url))
                     else:
                         skip_reason = []
                         if not is_valid_domain:
@@ -663,8 +660,6 @@ class Crawler:
 
                 if is_valid_domain and is_not_irrelevant_extension and passes_sideways_restriction and passes_backwards_restriction:
                     links.add(clean)
-                    if SETTINGS["enable_visual_tree_generation"]:
-                        relationships.append((url, clean))
 
             return links, relationships
 
@@ -1124,8 +1119,6 @@ class CrawlCoordinator:
                             try:
                                 links_on_page, relationships_on_page = future.result()
                                 log_message("DEBUG", f"Crawl task for {url} completed.", debug_only=True)
-                                if SETTINGS["enable_visual_tree_generation"]:
-                                    self.graph_builder.add_relationships(relationships_on_page)
 
                                 if crawling_enabled and not self.is_paused:
                                     for link in links_on_page:
