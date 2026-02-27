@@ -15,12 +15,12 @@ The archiver decides which pages actually need to be saved. For every link the s
 ## New Additions and Enhancements in V1.3
 
 ### Added Features
-- New GUI Mode
-- Theming Capabilities
-- Language Support
-- Screenreader Support
-- The ability to Stop, Pause, and Resume the program
-- Improved error logging and status visibility
+- New GUI Mode.
+- Theming Capabilities.
+- Language Support.
+- Screenreader Support.
+- The ability to Stop, Pause, and Resume the program.
+- Improved error logging and status visibility.
 
 ### Settings
 - Deprecated `enable_visual_tree_generation` setting. 
@@ -30,6 +30,7 @@ The archiver decides which pages actually need to be saved. For every link the s
 - Small improvement to Memory Usage through optimized thread management.
 - Transitioned from Command Line Interface (CLI) to Graphical User Interface (GUI) for primary interaction while ensuring that CLI still functions as normal.
 - Updated dependency requirements to support GUI framework and accessibility features.
+- - Updated dependency requirements: `networkx` and `matplotlib` are no longer required due to visual tree deprecation.
 
 ## Contributing
 Pull requests are welcome. For major changes, please open an issue first
