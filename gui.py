@@ -6,14 +6,14 @@ import csv
 from pathlib import Path
 from collections import deque
 
-from PyQt6.QtCore import QTimer, Qt, pyqtSignal, QObject
+from PyQt6.QtCore import QTimer, Qt, pyqtSignal, QObject, QSize
 from PyQt6.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout,
     QListWidget, QPushButton, QLineEdit, QLabel,
     QCheckBox, QSpinBox, QGroupBox, QScrollArea, QTextEdit, 
     QStyleFactory, QDialog, QDialogButtonBox, QMenu, QMenuBar,
     QProgressBar, QFrame, QListWidgetItem, QTableWidget, QTableWidgetItem,
-    QHeaderView, QComboBox
+    QHeaderView, QComboBox, QStyle,QSizePolicy,QToolButton
 )
 from PyQt6.QtGui import QPalette, QColor, QAction, QFont, QIcon
 
@@ -231,6 +231,50 @@ class ThemeManager:
         except Exception as e:
             log_message("ERROR", f"Theme load failed: {e}", False)
 
+class UrlListItemWidget(QWidget):
+    deleteClicked = pyqtSignal(str)
+    
+    def __init__(self, url, parent=None):
+        super().__init__(parent)
+        self.url = url
+        self.setup_ui()
+        
+    def setup_ui(self):
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(2, 2, 2, 2)
+        layout.setSpacing(5)
+        
+        self.url_label = QLabel(self.url)
+        self.url_label.setStyleSheet("QLabel { background-color: transparent; }")
+        self.url_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        
+        self.delete_btn = QToolButton()
+        self.delete_btn.setIcon(QApplication.style().standardIcon(QStyle.StandardPixmap.SP_TrashIcon))
+
+        self.delete_btn.setFixedSize(30, 30)  # Slightly smaller than 32x32 to look more balanced
+        self.delete_btn.setIconSize(QSize(16, 16))  # Ideal size for trash icon
+        self.delete_btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
+        self.delete_btn.setStyleSheet("""
+            QToolButton {
+                background-color: #FF0000;
+                border: 1px solid #666666;
+                border-radius: 15px;  /* Fully rounded corners */
+            }
+            QToolButton:hover {
+                background-color: #922;
+                border: 1px solid #811;
+            }
+        """)
+        self.delete_btn.setToolTip("Remove URL")
+        self.delete_btn.clicked.connect(self.on_delete_clicked)
+        
+        layout.addWidget(self.url_label, stretch=9)  # 90% to label
+        layout.addWidget(self.delete_btn, stretch=1)  # 10% to button
+        self.setLayout(layout)
+        
+    def on_delete_clicked(self):
+        self.deleteClicked.emit(self.url)
+
 class StatusUpdater(QObject):
     update_status = pyqtSignal(str, str, str, str, str)   
     update_crawling = pyqtSignal(list)
@@ -250,6 +294,8 @@ class CrawlerGUI(QWidget):
         self.timer = None
         self.is_running = False
         self.is_paused = False
+        self.url_list_items = {}  # Store mapping of URLs to their list items
+        
         self.status_updater = StatusUpdater()
         self.status_updater.update_status.connect(self.update_stats)
         self.status_updater.update_crawling.connect(self.update_crawling_list)
@@ -506,8 +552,23 @@ class CrawlerGUI(QWidget):
         if "://" not in url:
             url = "http://" + url
             
-        if not any(self.url_list.item(i).text() == url for i in range(self.url_list.count())):
-            self.url_list.addItem(url)
+        # Check if URL already exists
+        normalized_url = normalize_url(url)
+        if normalized_url in self.url_list_items:
+            return
+            
+        # Add URL to list with trash can button
+        list_item = QListWidgetItem()
+        list_item.setSizeHint(QSize(100, 30))
+        
+        item_widget = UrlListItemWidget(url)
+        item_widget.deleteClicked.connect(self.remove_url)
+        
+        self.url_list.addItem(list_item)
+        self.url_list.setItemWidget(list_item, item_widget)
+        
+        # Store reference for easy lookup
+        self.url_list_items[normalized_url] = list_item
             
         # Update recent URLs
         recent_urls = SETTINGS.get("recent_urls", [])
@@ -529,6 +590,26 @@ class CrawlerGUI(QWidget):
                 log_message("INFO", f"Added URL while running: {url}", debug_only=False)
             except Exception as e:
                 log_message("ERROR", f"Failed to add URL: {str(e)}", debug_only=False)
+
+    def remove_url(self, url):
+        # Normalize URL for lookup
+        normalized_url = normalize_url(url)
+        
+        # Remove from our tracking dict
+        if normalized_url in self.url_list_items:
+            list_item = self.url_list_items[normalized_url]
+            row = self.url_list.row(list_item)
+            self.url_list.takeItem(row)
+            del self.url_list_items[normalized_url]
+            
+        # Remove from coordinator if running
+        if self.coordinator and hasattr(self.coordinator, 'visited_urls'):
+            self.coordinator.visited_urls.discard(normalized_url)
+            if hasattr(self.coordinator, 'queue_for_archiving'):
+                # Filter out the URL from the queue
+                self.coordinator.queue_for_archiving = deque([
+                    u for u in self.coordinator.queue_for_archiving if u != normalized_url
+                ])
 
     def save_proxies(self):
         proxy_text = self.proxy_text.toPlainText().strip()
@@ -573,7 +654,12 @@ class CrawlerGUI(QWidget):
             log_message("INFO", self.text_manager.get_text("crawler_running_warning"), debug_only=False)
             return
             
-        urls = [self.url_list.item(i).text() for i in range(self.url_list.count())]
+        urls = []
+        for i in range(self.url_list.count()):
+            item = self.url_list.item(i)
+            widget = self.url_list.itemWidget(item)
+            if widget and hasattr(widget, 'url'):
+                urls.append(widget.url)
         
         self.coordinator = CrawlCoordinator()
         self.coordinator.add_initial_urls(urls)
