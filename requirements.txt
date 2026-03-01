@@ -1,0 +1,7 @@
+requests
+beautifulsoup4
+waybackpy
+selenium
+webdriver-manager
+selenium-stealth
+pyqt6

@@ -1,0 +1,25 @@
+Al-Miftah,Al-Qeemah
+url_input_title,Idkhal al-rabit
+url_placeholder,"Adkhil al-rabit (mithal: example.com)"
+add_url_btn,Idafat rabit
+url_list_title,Qaimat al-rawabit
+start_btn,▶ Bada'
+pause_btn,⏸ Iqaf mu'aqqat
+resume_btn,⏯ IstinafQ
+stop_btn,⏹ Iqaf
+proxy_config_title,I'dadat al-proxy
+proxy_placeholder,"http://user:pass@host:port
+socks5://user:pass@host:port"
+save_proxy_btn,Hifz al-proxyat
+clear_proxy_btn,Mash al-proxyat
+progress_stats_title,Ihsaiyat al-taqaddum
+stats_format,"Al-halah: {status} | Al-mu'arshafah: {archived} | Al-mutakhattah: {skipped} | Al-fashilah: {failed} | Al-ijmali: {total}"
+crawling_queue_title,Qaimat intizar al-zahf
+archiving_queue_title,Qaimat intizar al-arshafah
+file_menu,&Malaf
+settings_action,&Al-i'dadat
+themes_menu,&Al-simat
+texts_menu,&Al-lughat
+proxy_label,"Al-proxyat (wahid fi kull satar):"
+archiving_progress_label,Taqaddum al-arshafah:
+text_editor_action,&Taghyir al-lughah
