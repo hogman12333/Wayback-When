@@ -1,0 +1,4 @@
+Theme: dark
+
+This is the description for the dark theme.
+You can edit this file to add your own content.

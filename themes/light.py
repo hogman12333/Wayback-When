@@ -1,4 +1,4 @@
-from PyQt6.QtWidgets import QApplication
+from PyQt6.QtGui import QPalette, QColor
 from PyQt6.QtCore import Qt
 
 # ===== CUSTOMISABLE VARIABLES =====
@@ -8,7 +8,7 @@ from PyQt6.QtCore import Qt
 # window_bg = "#f0f0f0"
 # window_text = "#313030"
 # window_font_family = '"Segoe UI", Arial, sans-serif'
-# window_font_size = "11pt"
+# window_font_size = "8pt"
 # window_font_weight = "normal"
 
 # --- Group Box ---
@@ -30,7 +30,7 @@ from PyQt6.QtCore import Qt
 # input_border_color = "#c0c0c0"
 # input_border_width = "1px"
 # input_border_radius = "4px"
-# input_padding = "6px"
+# input_padding = "0px"
 # input_selection_bg = "#777777"
 # input_selection_text = "white"
 # input_placeholder = "#a0a0a0"
@@ -42,8 +42,8 @@ from PyQt6.QtCore import Qt
 # button_border_width = "1px"
 # button_border_radius = "4px"
 # button_padding = "8px 16px"
-# button_min_width = "120px"
-# button_min_height = "40px"
+# button_min_width = "80px"
+# button_min_height = "30px"
 # button_font_weight = "bold"
 
 # Button States
@@ -90,12 +90,12 @@ from PyQt6.QtCore import Qt
 
 # --- Scroll Bars ---
 # scrollbar_width = "15px"
-# scrollbar_height = "15px"
+# scrollbar_height = "30px"
 # scrollbar_bg = "#f0f0f0"
 # scrollbar_border = "#c0c0c0"
 # scrollbar_handle_bg = "#c0c0c0"
 # scrollbar_handle_border_radius = "7px"
-# scrollbar_handle_min_height = "20px"
+# scrollbar_handle_min_height = "40px"
 # scrollbar_handle_min_width = "20px"
 # scrollbar_handle_hover_bg = "#b0b0b0"
 # scrollbar_handle_pressed_bg = "#a0a0a0"
@@ -139,121 +139,138 @@ from PyQt6.QtCore import Qt
 
 # ===== END OF CUSTOMISABLE VARIABLES =====
 
+
 def apply(app, widget):
-    app.setPalette(QApplication.style().standardPalette())
+    # --- Palette ---
+    palette = QPalette()
+    palette.setColor(QPalette.ColorRole.Window, QColor(240, 240, 240))
+    palette.setColor(QPalette.ColorRole.WindowText, QColor(49, 48, 48))
+    palette.setColor(QPalette.ColorRole.Base, QColor(250, 250, 250))
+    palette.setColor(QPalette.ColorRole.AlternateBase, QColor(240, 240, 240))
+    palette.setColor(QPalette.ColorRole.ToolTipBase, QColor(250, 250, 250))
+    palette.setColor(QPalette.ColorRole.ToolTipText, QColor(49, 48, 48))
+    palette.setColor(QPalette.ColorRole.Text, QColor(49, 48, 48))
+    palette.setColor(QPalette.ColorRole.Button, QColor(240, 240, 240))
+    palette.setColor(QPalette.ColorRole.ButtonText, QColor(49, 48, 48))
+    palette.setColor(QPalette.ColorRole.BrightText, QColor(0, 120, 212))
+    palette.setColor(QPalette.ColorRole.Highlight, QColor(0, 120, 212))
+    palette.setColor(QPalette.ColorRole.HighlightedText, QColor(255, 255, 255))
+    palette.setColor(QPalette.ColorRole.PlaceholderText, QColor(160, 160, 160))
+    app.setPalette(palette)
 
+    # --- Stylesheet ---
     widget.setStyleSheet("""
-    QWidget {
-        font-family: "Segoe UI", Arial, sans-serif;
-        font-size: 11pt;
-        color: #313030;
-        background-color: #f0f0f0;
-    }
+QWidget {
+    font-family: "Segoe UI", Arial, sans-serif;
+    font-size: 8pt;
+    color: #313030;
+    background-color: #f0f0f0;
+}
 
-    QGroupBox {
-        border: 2px solid #c0c0c0;
-        border-radius: 8px;
-        margin-top: 1em;
-        padding-top: 15px;
-        background-color: #fafafa;
-    }
+QGroupBox {
+    border: 2px solid #c0c0c0;
+    border-radius: 8px;
+    margin-top: 1em;
+    padding-top: 15px;
+    background-color: #fafafa;
+}
 
-    QGroupBox::title {
-        subcontrol-origin: margin;
-        left: 10px;
-        padding: 0 8px 0 8px;
-        color: #1E1F20;
-        font-weight: bold;
-    }
+QGroupBox::title {
+    subcontrol-origin: margin;
+    left: 10px;
+    padding: 0 8px 0 8px;
+    color: #1E1F20;
+    font-weight: bold;
+}
 
-    QListWidget, QTextEdit, QLineEdit {
-        border: 1px solid #c0c0c0;
-        border-radius: 4px;
-        padding: 6px;
-        background-color: white;
-        color: #242424;
-        selection-background-color: #777777;
-        selection-color: white;
-    }
+QListWidget, QTextEdit, QLineEdit {
+    border: 1px solid #c0c0c0;
+    border-radius: 4px;
+    padding: 0px;
+    background-color: white;
+    color: #242424;
+    selection-background-color: #777777;
+    selection-color: white;
+}
 
-    QPushButton {
-        padding: 8px 16px;
-        border-radius: 4px;
-        border: 1px solid #c0c0c0;
-        background-color: #f0f0f0;
-        font-weight: bold;
-        min-width: 120px;
-        max-width: 120px;
-        min-height: 40px;
-        max-height: 40px;
-    }
+QPushButton {
+    padding: 8px 16px;
+    border-radius: 4px;
+    border: 1px solid #c0c0c0;
+    background-color: #f0f0f0;
+    font-weight: bold;
+    min-width: 80px;
+    max-width: 80px;
+    min-height: 30px;
+    max-height: 30px;
+}
 
-    QPushButton:hover {
-        background-color: #e0e0e0;
-        border-color: #A1A1A1;
-    }
+QPushButton:hover {
+    background-color: #e0e0e0;
+    border-color: #A1A1A1;
+}
 
-    QPushButton:pressed {
-        background-color: #d0d0d0;
-    }
+QPushButton:pressed {
+    background-color: #d0d0d0;
+}
 
-    QPushButton:disabled {
-        color: #a0a0a0;
-        background-color: #f8f8f8;
-    }
+QPushButton:disabled {
+    color: #a0a0a0;
+    background-color: #f8f8f8;
+}
 
-    #control_container {
-        background-color: transparent;
-    }
+#control_container {
+    background-color: transparent;
+}
 
-    QMenuBar {
-        background-color: #f0f0f0;
-        border-bottom: 1px solid #c0c0c0;
-    }
+QMenuBar {
+    background-color: #f0f0f0;
+    border-bottom: 1px solid #c0c0c0;
+}
 
-    QMenuBar::item:selected {
-        background-color: #e0e0e0;
-    }
+QMenuBar::item:selected {
+    background-color: #e0e0e0;
+}
 
-    QScrollBar:vertical,
-    QScrollBar:horizontal {
-        border: 1px solid #c0c0c0;
-        background: #f0f0f0;
-        margin: 0;
-    }
+QScrollBar:vertical,
+QScrollBar:horizontal {
+    border: 1px solid #c0c0c0;
+    background: #f0f0f0;
+    margin: 0;
+}
 
-    QScrollBar:vertical {
-        width: 15px;
-    }
+QScrollBar:vertical {
+    width: 15px;
+}
 
-    QScrollBar:horizontal {
-        height: 15px;
-    }
+QScrollBar:horizontal {
+    height: 30px;
+}
 
-    QScrollBar::handle:vertical,
-    QScrollBar::handle:horizontal {
-        background: #c0c0c0;
-        border-radius: 7px;
-        min-height: 20px;
-        min-width: 20px;
-    }
+QScrollBar::handle:vertical,
+QScrollBar::handle:horizontal {
+    background: #c0c0c0;
+    border-radius: 7px;
+    min-height: 40px;
+    min-width: 20px;
+}
 
-    QScrollBar::add-line, QScrollBar::sub-line {
-        height: 0;
-        width: 0;
-    }
+QScrollBar::add-line, QScrollBar::sub-line {
+    height: 0;
+    width: 0;
+}
 
-    QProgressBar {
-        border: 1px solid #c0c0c0;
-        border-radius: 4px;
-        text-align: center;
-        background-color: #f0f0f0;
-    }
+QProgressBar {
+    border: 1px solid #c0c0c0;
+    border-radius: 4px;
+    text-align: center;
+    background-color: #f0f0f0;
+}
 
-    QProgressBar::chunk {
-        background-color: #0078d4;
-    }
-    """)
+QProgressBar::chunk {
+    background-color: #0078d4;
+}
+""")
 
     # transparency
     widget.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)

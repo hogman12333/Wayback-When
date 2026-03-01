@@ -5,16 +5,20 @@
   "debug_mode": false,
   "default_archiving_action": "N",
   "max_archiver_workers": 1,
-  "max_crawler_workers": 10,
+  "max_crawler_workers": 20,
   "min_link_search_delay": 0.0,
-  "max_link_search_delay": 5.0,
+  "max_link_search_delay": 2.0,
   "max_crawl_runtime": 0,
   "max_archive_runtime": 0,
   "proxies": [],
-  "retries": 5,
+  "retries": 3,
   "safety_switch": false,
   "urls_per_minute_limit": 15,
   "restrict_sideways_crawling": false,
   "restrict_backwards_crawling": true,
-  "theme": "dark"
+  "theme": "pastel-blue",
+  "recent_urls": [
+    "https://annas-archive.gl/",
+    "http://github.com"
+  ]
 }

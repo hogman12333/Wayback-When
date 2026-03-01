@@ -160,7 +160,7 @@ def apply(app, widget):
     widget.setStyleSheet("""
     QWidget {
         font-family: "Segoe UI", Arial, sans-serif;
-        font-size: 11pt;
+        font-size: 8pt;
         color: #dce6f0;
         background-color: #141e28;
     }
@@ -198,10 +198,10 @@ def apply(app, widget):
         border-radius: 4px;
         padding: 8px 16px;
         font-weight: bold;
-        min-width: 120px;
-        max-width: 120px;
-        min-height: 40px;
-        max-height: 40px;
+        min-width: 80px;
+        max-width: 80px;
+        min-height: 30px;
+        max-height: 30px;
     }
 
     QPushButton:hover {

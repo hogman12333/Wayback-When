@@ -1,0 +1,4 @@
+Theme: catppuccin(mocha)
+
+This is the description for the catppuccin(mocha) theme.
+You can edit this file to add your own content.

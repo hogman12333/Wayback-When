@@ -8,7 +8,7 @@ from PyQt6.QtCore import Qt
 # window_bg = "#1e1e1e"
 # window_text = "#e0e0e0"
 # window_font_family = '"Segoe UI", Arial, sans-serif'
-# window_font_size = "11pt"
+# window_font_size = "8pt"
 # window_font_weight = "normal"
 
 # --- Group Box ---
@@ -42,8 +42,8 @@ from PyQt6.QtCore import Qt
 # button_border_width = "1px"
 # button_border_radius = "4px"
 # button_padding = "8px 16px"
-# button_min_width = "120px"
-# button_min_height = "40px"
+# button_min_width = "80px"
+# button_min_height = "30px"
 # button_font_weight = "bold"
 
 # Button States
@@ -90,12 +90,12 @@ from PyQt6.QtCore import Qt
 
 # --- Scroll Bars ---
 # scrollbar_width = "15px"
-# scrollbar_height = "15px"
+# scrollbar_height = "30px"
 # scrollbar_bg = "#2d2d30"
 # scrollbar_border = "#573D3D"
 # scrollbar_handle_bg = "#3e3e40"
 # scrollbar_handle_border_radius = "7px"
-# scrollbar_handle_min_height = "20px"
+# scrollbar_handle_min_height = "40px"
 # scrollbar_handle_min_width = "20px"
 # scrollbar_handle_hover_bg = "#4f4f4f"
 # scrollbar_handle_pressed_bg = "#5f5f5f"
@@ -139,6 +139,7 @@ from PyQt6.QtCore import Qt
 
 # ===== END OF CUSTOMISABLE VARIABLES =====
 
+
 def apply(app, widget):
     # --- Palette ---
     palette = QPalette()
@@ -155,143 +156,142 @@ def apply(app, widget):
     palette.setColor(QPalette.ColorRole.Highlight, QColor(0, 122, 204))
     palette.setColor(QPalette.ColorRole.HighlightedText, Qt.GlobalColor.white)
     palette.setColor(QPalette.ColorRole.PlaceholderText, QColor(127, 127, 127))
-
     app.setPalette(palette)
 
     # --- Stylesheet ---
     widget.setStyleSheet("""
-    QWidget {
-        font-family: "Segoe UI", Arial, sans-serif;
-        font-size: 11pt;
-        color: #e0e0e0;
-        background-color: #1e1e1e;
-    }
+QWidget {
+    font-family: "Segoe UI", Arial, sans-serif;
+    font-size: 8pt;
+    color: #e0e0e0;
+    background-color: #1e1e1e;
+}
 
-    QGroupBox { 
-        border: 2px solid #141414;
-        border-radius: 8px;
-        margin-top: 1em;
-        padding-top: 15px;
-        background-color: #1e1e1e;
-    }
+QGroupBox { 
+    border: 2px solid #141414;
+    border-radius: 8px;
+    margin-top: 1em;
+    padding-top: 15px;
+    background-color: #1e1e1e;
+}
 
-    QGroupBox::title {
-        subcontrol-origin: margin;
-        left: 10px;
-        padding: 0 8px 0 8px;
-        color: #D8D8D8;
-        font-weight: bold;
-    }
+QGroupBox::title {
+    subcontrol-origin: margin;
+    left: 10px;
+    padding: 0 8px 0 8px;
+    color: #D8D8D8;
+    font-weight: bold;
+}
 
-    QListWidget, QTextEdit, QLineEdit {
-        background-color: #2d2d30;
-        color: #e0e0e0;
-        border: 1px solid #404040;
-        border-radius: 4px;
-        padding: 0px;
-        selection-background-color: #5F5F5F;
-        selection-color: white;
-    }
+QListWidget, QTextEdit, QLineEdit {
+    background-color: #2d2d30;
+    color: #e0e0e0;
+    border: 1px solid #404040;
+    border-radius: 4px;
+    padding: 0px;
+    selection-background-color: #5F5F5F;
+    selection-color: white;
+}
 
-    QPushButton {
-        background-color: #333337;
-        color: #e0e0e0;
-        border: 1px solid #404040;
-        border-radius: 4px;
-        padding: 8px 16px;
-        font-weight: bold;
-        min-width: 120px;
-        max-width: 120px;
-        min-height: 40px;
-        max-height: 40px;
-    }
+QPushButton {
+    background-color: #333337;
+    color: #e0e0e0;
+    border: 1px solid #404040;
+    border-radius: 4px;
+    padding: 8px 16px;
+    font-weight: bold;
+    min-width: 80px;
+    max-width: 80px;
+    min-height: 30px;
+    max-height: 30px;
+}
 
-    QPushButton:hover {
-        background-color: #3a3a3d;
-        border-color: #00ccff;
-    }
+QPushButton:hover {
+    background-color: #3a3a3d;
+    border-color: #00ccff;
+}
 
-    QPushButton:pressed {
-        background-color: #1e1e1e;
-    }
+QPushButton:pressed {
+    background-color: #1e1e1e;
+}
 
-    QPushButton:disabled {
-        color: #777;
-        background-color: #2d2d30;
-    }
+QPushButton:disabled {
+    color: #777;
+    background-color: #2d2d30;
+}
 
-    #control_container {
-        background-color: transparent;
-    }
+#control_container {
+    background-color: transparent;
+}
 
-    QMenuBar {
-        background-color: #252526;
-        color: #e0e0e0;
-        border-bottom: 1px solid #404040;
-    }
+QMenuBar {
+    background-color: #252526;
+    color: #e0e0e0;
+    border-bottom: 1px solid #404040;
+}
 
-    QMenuBar::item {
-        background-color: transparent;
-        padding: 4px 8px;
-    }
+QMenuBar::item {
+    background-color: transparent;
+    padding: 4px 8px;
+}
 
-    QMenuBar::item:selected {
-        background-color: #3e3e40;
-    }
+QMenuBar::item:selected {
+    background-color: #3e3e40;
+}
 
-    QMenu {
-        background-color: #2d2d30;
-        color: #e0e0e0;
-        border: 1px solid #404040;
-    }
+QMenu {
+    background-color: #2d2d30;
+    color: #e0e0e0;
+    border: 1px solid #404040;
+}
 
-    QMenu::item:selected {
-        background-color: #3e3e40;
-    }
+QMenu::item:selected {
+    background-color: #3e3e40;
+}
 
-    QScrollBar:vertical {
-        border: 1px solid #573D3D;
-        background: #2d2d30;
-        width: 15px;
-        margin: 0;
-    }
+QScrollBar:vertical {
+    border: 1px solid #573D3D;
+    background: #2d2d30;
+    width: 15px;
+    margin: 0;
+}
 
-    QScrollBar:horizontal {
-        border: 1px solid #404040;
-        background: #2d2d30;
-        height: 15px;
-        margin: 0;
-    }
+QScrollBar:horizontal {
+    border: 1px solid #404040;
+    background: #2d2d30;
+    height: 30px;
+    margin: 0;
+}
 
-    QScrollBar::handle:vertical {
-        background: #3e3e40;
-        min-height: 20px;
-        border-radius: 7px;
-    }
+QScrollBar::handle:vertical {
+    background: #3e3e40;
+    min-height: 40px;
+    border-radius: 7px;
+}
 
-    QScrollBar::handle:horizontal {
-        background: #3e3e40;
-        min-width: 20px;
-        border-radius: 7px;
-    }
+QScrollBar::handle:horizontal {
+    background: #3e3e40;
+    min-width: 20px;
+    border-radius: 7px;
+}
 
-    QScrollBar::add-line, QScrollBar::sub-line {
-        height: 0;
-        width: 0;
-    }
+QScrollBar::add-line, QScrollBar::sub-line {
+    height: 0;
+    width: 0;
+}
 
-    QProgressBar {
-        border: 1px solid #404040;
-        border-radius: 4px;
-        text-align: center;
-        background-color: #2d2d30;
-    }
+QProgressBar {
+    border: 1px solid #404040;
+    border-radius: 4px;
+    text-align: center;
+    background-color: #2d2d30;
+}
 
-    QProgressBar::chunk {
-        background-color: #0078d4;
-        border-radius: 0px;
-    }
-    """)
+QProgressBar::chunk {
+    background-color: #0078d4;
+    border-radius: 0px;
+}
+""")
 
     # transparency
     widget.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
